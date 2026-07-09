@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+*.log
+__pycache__/
+node_modules/
+.next/
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.pem
+*.key

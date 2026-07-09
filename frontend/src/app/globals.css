@@ -1,0 +1,83 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 5%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 8%;
+    --card-foreground: 210 40% 98%;
+    --primary: 160 84% 39%;
+    --primary-foreground: 222 47% 5%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 12%;
+    --muted-foreground: 215 20% 55%;
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 160 84% 39%;
+    --radius: 0.75rem;
+  }
+
+  .light {
+    --background: 0 0% 98%;
+    --foreground: 222 47% 5%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 5%;
+    --primary: 160 84% 39%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 94%;
+    --secondary-foreground: 222 47% 5%;
+    --muted: 210 40% 94%;
+    --muted-foreground: 215 20% 45%;
+    --accent: 210 40% 94%;
+    --accent-foreground: 222 47% 5%;
+    --border: 214 32% 88%;
+    --input: 214 32% 88%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground font-sans antialiased; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { @apply bg-muted; }
+  ::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl;
+  }
+  .glass-card {
+    @apply glass p-6 shadow-xl;
+  }
+  .neon-text {
+    @apply text-neon-green drop-shadow-[0_0_8px_rgba(0,255,136,0.6)];
+  }
+  .neon-border {
+    @apply border border-neon-green/30 shadow-[0_0_15px_rgba(0,255,136,0.1)];
+  }
+  .gradient-text {
+    @apply bg-gradient-to-r from-neon-green via-neon-blue to-neon-purple bg-clip-text text-transparent;
+  }
+  .btn-primary {
+    @apply bg-gradient-to-r from-neon-green to-neon-blue text-black font-semibold px-6 py-2.5 rounded-lg
+           hover:opacity-90 active:scale-95 transition-all duration-200 shadow-[0_0_20px_rgba(0,255,136,0.3)];
+  }
+  .stat-card {
+    @apply glass-card hover:border-neon-green/30 transition-all duration-300 cursor-default;
+  }
+  .positive { @apply text-neon-green; }
+  .negative { @apply text-red-400; }
+  .neutral { @apply text-yellow-400; }
+}
+
+
