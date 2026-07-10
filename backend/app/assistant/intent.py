@@ -17,6 +17,9 @@ class Intent:
     symbol2: str | None # secondary symbol (for COMPARE)
     budget: float | None
     raw: str
+    count: int          # how many results requested (default 5)
+    price_filter: str | None  # "low", "high", or None
+    sort_by: str        # "score" | "price_asc" | "price_desc"
 
 
 INTENT_PATTERNS = {
@@ -51,6 +54,14 @@ INTENT_PATTERNS = {
         r"\b(best|good|top).{0,20}(buy|invest|purchase)\b",
         r"\bwhere (should|can) i invest\b",
         r"\bwhat (to|can i) buy\b",
+        # Catch "top N stocks", "top 3 low price stocks", "top 5 stock prices"
+        r"\btop\s+\d+\s+stock",
+        r"\btop\s+\d+.{0,30}\bstock",
+        r"\b\d+\s+(best|top|cheap|low.?price)\s+stock",
+        r"\b(low.?price|cheap|penny|affordable).{0,20}stock",
+        r"\bstock.{0,20}(low.?price|cheap|penny|affordable)",
+        r"\bhigh.{0,20}demand.{0,20}stock",
+        r"\bstock.{0,20}high.{0,20}demand",
     ],
     "RISK": [
         r"\brisk\b", r"\bvolatil\b", r"\bdrawdown\b", r"\bvar\b",
@@ -109,8 +120,15 @@ def detect_intent(prompt: str, context_symbol: str | None = None) -> Intent:
     text = prompt.lower().strip()
 
     # Detect intent type
+    # RECOMMENDATION must be checked before PRICE to avoid "top 5 stock prices"
+    # matching \bprice\b and routing to a single-ticker price lookup.
+    PRIORITY_ORDER = [
+        "RECOMMENDATION", "BUDGET", "COMPARE", "EDUCATION",
+        "PREDICTION", "RISK", "MARKET", "PRICE",
+    ]
     detected = "UNKNOWN"
-    for intent_type, patterns in INTENT_PATTERNS.items():
+    for intent_type in PRIORITY_ORDER:
+        patterns = INTENT_PATTERNS.get(intent_type, [])
         for pattern in patterns:
             if re.search(pattern, text):
                 detected = intent_type
@@ -119,18 +137,28 @@ def detect_intent(prompt: str, context_symbol: str | None = None) -> Intent:
             break
 
     # Extract symbols
-    from app.assistant.classifier import KNOWN_TICKERS, COMPANY_NAMES
+    from app.assistant.classifier import KNOWN_TICKERS, COMPANY_NAMES, _STOP_WORDS
     upper = prompt.upper()
     symbol  = None
     symbol2 = None
 
     found = []
     for ticker in KNOWN_TICKERS:
-        if re.search(rf'\b{ticker}\b', upper):
+        escaped = re.escape(ticker)
+        if re.search(rf'\b{escaped}\b', upper):
             found.append(ticker)
-    for name, ticker in COMPANY_NAMES.items():
+    # Check company names (longest first to avoid partial matches)
+    for name in sorted(COMPANY_NAMES, key=len, reverse=True):
+        ticker = COMPANY_NAMES[name]
         if name in text and ticker not in found:
             found.append(ticker)
+    # Dynamic ticker fallback — skip if intent is already a list/recommendation query
+    if not found and detected not in ("RECOMMENDATION", "BUDGET", "MARKET"):
+        dyn = re.findall(r'\b([A-Z]{2,5})\b', upper)
+        for m in dyn:
+            if m not in _STOP_WORDS and m not in {"BUY","SELL","HOLD","ETF","IPO","GDP","VIX","ATR"}:
+                found.append(m)
+                break
 
     if found:
         symbol  = found[0]
@@ -152,10 +180,28 @@ def detect_intent(prompt: str, context_symbol: str | None = None) -> Intent:
     if budget and detected in ("RECOMMENDATION", "PREDICTION", "UNKNOWN"):
         detected = "BUDGET"
 
+    # ── Parse count modifier ("top 3", "top 10", "give me 7") ─────────────────
+    count_match = re.search(r'\b(?:top|best|give me|show me)?\s*(\d+)\s*(?:stocks?|picks?|results?)?\b', text)
+    count = int(count_match.group(1)) if count_match else 5
+    count = max(1, min(count, 20))  # clamp 1-20
+
+    # ── Parse price filter & sort ─────────────────────────────────────────────
+    price_filter = None
+    sort_by = "score"
+    if re.search(r'\b(low.?price|cheap|penny|affordable|lowest price)\b', text):
+        price_filter = "low"
+        sort_by = "price_asc"
+    elif re.search(r'\b(high.?price|expensive|highest price|most expensive)\b', text):
+        price_filter = "high"
+        sort_by = "price_desc"
+
     return Intent(
         type=detected,
         symbol=symbol,
         symbol2=symbol2,
         budget=budget,
         raw=prompt,
+        count=count,
+        price_filter=price_filter,
+        sort_by=sort_by,
     )

@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     ALPACA_BASE_URL: str = "https://paper-api.alpaca.markets"
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.0-flash"
+    NVIDIA_API_KEY: str = ""
+    NVIDIA_MODEL: str = "nvidia/llama-3.1-nemotron-ultra-253b-v1"
     # ANTHROPIC_API_KEY: str = ""
     # ANTHROPIC_MODEL: str = "claude-3-5-haiku-20241022"
     XAI_API_KEY: str = ""

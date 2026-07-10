@@ -27,10 +27,12 @@ class ConversationMemory:
     def __init__(self):
         self._turns: deque[Turn] = deque(maxlen=self.MAX_TURNS)
         self.last_symbol: str | None = None
+        self.last_response: str | None = None   # full text of the previous reply
 
     def add(self, prompt: str, response: str, symbol: str | None, intent: str):
         if symbol:
             self.last_symbol = symbol
+        self.last_response = response
         self._turns.append(Turn(prompt=prompt, response=response,
                                 symbol=symbol, intent=intent))
 

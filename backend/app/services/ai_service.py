@@ -2,25 +2,22 @@
 AI Pipeline: Multi-Provider Waterfall
 ──────────────────────────────────────
 Provider order (try each in sequence, skip on quota/auth error):
-  1. Groq          (llama-3.3-70b-versatile)   — fastest, free tier
-  2. OpenRouter    (mistralai/mistral-7b)       — fallback #1
-  3. Mistral       (mistral-small-latest)       — fallback #2
-  4. Grok / xAI   (grok-3-mini)                — fallback #3
-
-Each provider receives the FULL context (raw market data + any partial
-analysis accumulated from previous failed providers) so no data is lost
-and the response quality stays consistent regardless of which provider
-ultimately answers.
-
-Previous pipelines (kept as comments):
-# Stage 1 DeepSeek → Stage 2 Grok pipeline (commented out)
-# Gemini pipeline (commented out)
-# Claude/Anthropic pipeline (commented out)
+  1. NVIDIA NIM    (llama-3.1-nemotron-ultra-253b-v1) — primary, highest quality
+  2. Gemini        (gemini-2.0-flash)                 — fallback #1
+  3. Groq          (llama-3.3-70b-versatile)          — fallback #2
+  4. OpenRouter    (mistralai/mistral-7b)              — fallback #3
+  5. Mistral       (mistral-small-latest)              — fallback #4
+  6. Grok / xAI   (grok-3-mini)                       — fallback #5
 """
 
 import re
 import asyncio
 import httpx
+try:
+    import google.generativeai as genai
+    _GEMINI_AVAILABLE = True
+except ImportError:
+    _GEMINI_AVAILABLE = False
 from app.core.config import settings
 from app.services.market_service import get_stock_quote, get_market_movers
 from app.services.prediction_service import run_prediction
@@ -39,6 +36,7 @@ from app.services.risk_service import analyze_risk
 #   async def _call_claude(messages, context): ...
 # ──────────────────────────────────────────────────────────────────────────────
 
+_NVIDIA_BASE     = "https://integrate.api.nvidia.com/v1"
 _GROQ_BASE        = "https://api.groq.com/openai/v1"
 _OPENROUTER_BASE  = "https://openrouter.ai/api/v1"
 _MISTRAL_BASE     = "https://api.mistral.ai/v1"
@@ -311,6 +309,44 @@ async def _gather_market_context() -> str:
         return ""
 
 
+# ── Gemini provider ───────────────────────────────────────────────────────────
+
+async def _call_gemini(messages: list[dict]) -> tuple[str | None, bool]:
+    """
+    Call Gemini via google-generativeai SDK.
+    Returns (response_text, should_skip) — same contract as _call_openai_compat.
+    """
+    if not _GEMINI_AVAILABLE or not settings.GEMINI_API_KEY:
+        return None, True
+    try:
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        model = genai.GenerativeModel(
+            model_name=settings.GEMINI_MODEL,
+            system_instruction=next(
+                (m["content"] for m in messages if m["role"] == "system"), None
+            ),
+        )
+        # Build Gemini history (user/model alternating) from prior turns
+        history_turns = []
+        convo_messages = [m for m in messages if m["role"] != "system"]
+        # All but the last message go into history
+        for m in convo_messages[:-1]:
+            history_turns.append({
+                "role": "user" if m["role"] == "user" else "model",
+                "parts": [m["content"]],
+            })
+        user_prompt = convo_messages[-1]["content"] if convo_messages else ""
+
+        chat_session = model.start_chat(history=history_turns)
+        response = await asyncio.to_thread(chat_session.send_message, user_prompt)
+        text = response.text
+        if text:
+            return text, False
+        return None, True
+    except Exception:
+        return None, True
+
+
 # ── Provider callers (all OpenAI-compatible) ───────────────────────────────────
 
 async def _call_openai_compat(
@@ -365,23 +401,33 @@ async def _call_openai_compat(
 
 async def _waterfall(messages: list[dict]) -> str:
     """
-    Try providers in order. Each failed provider's skip reason is noted.
-    The full context (already embedded in messages) is passed to every provider
-    so no data is lost between attempts.
+    Try providers in order: NVIDIA first, then Gemini → Groq → OpenRouter → Mistral → xAI.
+    Full context is embedded in messages so no data is lost between attempts.
     """
-    providers = []
+    # ── 1. NVIDIA NIM (primary — highest quality) ────────────────────────────────
+    if settings.NVIDIA_API_KEY:
+        result, skip = await _call_openai_compat(
+            _NVIDIA_BASE, settings.NVIDIA_API_KEY, settings.NVIDIA_MODEL, messages, 45
+        )
+        if result:
+            return result
 
+    # ── 2. Gemini fallback ────────────────────────────────────────────────────
+    if settings.GEMINI_API_KEY:
+        result, skip = await _call_gemini(messages)
+        if result:
+            return result
+
+    # ── 3. OpenAI-compatible fallbacks ────────────────────────────────────────
+    providers = []
     if settings.GROQ_API_KEY:
         providers.append(("Groq", _GROQ_BASE, settings.GROQ_API_KEY, settings.GROQ_MODEL, 25, None))
-
     if settings.OPENROUTER_API_KEY:
         providers.append(("OpenRouter", _OPENROUTER_BASE, settings.OPENROUTER_API_KEY,
                           settings.OPENROUTER_MODEL, 30,
                           {"HTTP-Referer": "https://trademind.ai", "X-Title": "TradeMind AI"}))
-
     if settings.MISTRAL_API_KEY:
         providers.append(("Mistral", _MISTRAL_BASE, settings.MISTRAL_API_KEY, settings.MISTRAL_MODEL, 30, None))
-
     if settings.XAI_API_KEY:
         providers.append(("Grok/xAI", _XAI_BASE, settings.XAI_API_KEY, settings.XAI_MODEL, 30, None))
 
@@ -392,8 +438,6 @@ async def _waterfall(messages: list[dict]) -> str:
         result, skip = await _call_openai_compat(base, key, model, messages, timeout, extra)
         if result:
             return result
-        # skip=True → quota/auth exhausted, try next
-        # skip=False + None → transient error, still try next (graceful degradation)
 
     return _hard_fallback(messages)
 
@@ -407,7 +451,7 @@ def _hard_fallback(messages: list[dict]) -> str:
         return (
             f"📊 **Raw Analysis (all AI providers offline)**\n\n"
             f"{price_line}\n{signal_line}\n\n"
-            f"*(Groq, OpenRouter, Mistral, and xAI are all unavailable. "
+            f"*(NVIDIA, Gemini, Groq, OpenRouter, Mistral, and xAI are all unavailable. "
             f"Check API keys in backend/.env)*"
         )
     return "⚠️ All AI providers are unreachable. Please check API keys in backend/.env and restart."

@@ -3,82 +3,128 @@ classifier.py
 ─────────────
 Determines whether a user query is stock-related.
 No LLM required — pure keyword + ticker matching.
+
+Rules:
+  1. Known dashboard ticker  → accept, return ticker
+  2. Known company name      → accept, return ticker
+  3. Financial keyword       → accept, no ticker
+  4. Dynamic ticker pattern  → accept only if 2-5 uppercase letters
+     that are NOT in a strict stop-word list
+  5. Everything else         → reject
 """
 
 import re
 
-# ── Ticker universe ────────────────────────────────────────────────────────────
+# ── Ticker universe — mirrors dashboard ALL_STOCKS exactly ────────────────────
 KNOWN_TICKERS = {
-    "AAPL","MSFT","NVDA","GOOGL","GOOG","META","AMZN","TSLA","AMD","INTC",
-    "ORCL","CRM","ADBE","QCOM","TXN","PLTR","SNOW","NET","SHOP","NFLX",
-    "BABA","UBER","ABNB","NKE","SBUX","MCD","WMT","JPM","BAC","GS","MS",
-    "BRK","V","MA","PYPL","COIN","HOOD","JNJ","PFE","MRNA","UNH","ABBV",
-    "LLY","XOM","CVX","COP","SLB","SPY","QQQ","DIA","IWM","VTI","VOO",
-    "SOFI","RIVN","LCID","NIO","XPEV","BYND","ROKU","SNAP","PINS","TWTR",
-    "LYFT","DASH","RBLX","U","DKNG","PENN","MGM","WYNN","LVS","CHWY",
-    "ETSY","EBAY","BIDU","JD","PDD","SE","GRAB","GOTO","CPNG","MELI",
+    # Technology
+    "AAPL","MSFT","NVDA","GOOGL","GOOG","META","AMD","INTC","ORCL","CRM",
+    "ADBE","QCOM","TXN","PLTR","SNOW","NET","SHOP",
+    # Consumer
+    "AMZN","TSLA","NFLX","BABA","UBER","ABNB","NKE","SBUX","MCD","WMT",
+    # Finance
+    "JPM","BAC","GS","MS","BRK-B","V","MA","PYPL","COIN","HOOD",
+    # Healthcare
+    "JNJ","PFE","MRNA","UNH","ABBV","LLY",
+    # Energy
+    "XOM","CVX","COP","SLB",
+    # ETF
+    "SPY","QQQ","DIA","IWM",
 }
 
-# ── Company name → ticker map ──────────────────────────────────────────────────
+# ── Company name → ticker — mirrors dashboard ALL_STOCKS exactly ──────────────
 COMPANY_NAMES = {
-    "apple": "AAPL", "microsoft": "MSFT", "nvidia": "NVDA", "google": "GOOGL",
-    "alphabet": "GOOGL", "meta": "META", "facebook": "META", "amazon": "AMZN",
-    "tesla": "TSLA", "amd": "AMD", "intel": "INTC", "oracle": "ORCL",
-    "salesforce": "CRM", "adobe": "ADBE", "qualcomm": "QCOM",
-    "texas instruments": "TXN", "palantir": "PLTR", "snowflake": "SNOW",
-    "cloudflare": "NET", "shopify": "SHOP", "netflix": "NFLX",
-    "alibaba": "BABA", "uber": "UBER", "airbnb": "ABNB", "nike": "NKE",
-    "starbucks": "SBUX", "mcdonald": "MCD", "walmart": "WMT",
+    # Technology
+    "apple": "AAPL", "microsoft": "MSFT", "nvidia": "NVDA",
+    "google": "GOOGL", "alphabet": "GOOGL", "meta": "META", "facebook": "META",
+    "amd": "AMD", "advanced micro devices": "AMD", "intel": "INTC",
+    "oracle": "ORCL", "salesforce": "CRM", "adobe": "ADBE",
+    "qualcomm": "QCOM", "texas instruments": "TXN", "palantir": "PLTR",
+    "snowflake": "SNOW", "cloudflare": "NET", "shopify": "SHOP",
+    # Consumer
+    "amazon": "AMZN", "tesla": "TSLA", "netflix": "NFLX",
+    "alibaba": "BABA", "uber": "UBER", "airbnb": "ABNB",
+    "nike": "NKE", "starbucks": "SBUX", "mcdonald": "MCD", "mcdonalds": "MCD",
+    "walmart": "WMT",
+    # Finance
     "jpmorgan": "JPM", "jp morgan": "JPM", "bank of america": "BAC",
-    "goldman sachs": "GS", "morgan stanley": "MS", "berkshire": "BRK",
-    "visa": "V", "mastercard": "MA", "paypal": "PYPL", "coinbase": "COIN",
-    "robinhood": "HOOD", "johnson": "JNJ", "pfizer": "PFE", "moderna": "MRNA",
-    "unitedhealth": "UNH", "abbvie": "ABBV", "eli lilly": "LLY", "lilly": "LLY",
-    "exxon": "XOM", "chevron": "CVX", "conocophillips": "COP",
-    "s&p": "SPY", "nasdaq": "QQQ", "dow jones": "DIA", "russell": "IWM",
+    "goldman sachs": "GS", "goldman": "GS", "morgan stanley": "MS",
+    "berkshire": "BRK-B", "visa": "V", "mastercard": "MA",
+    "paypal": "PYPL", "coinbase": "COIN", "robinhood": "HOOD",
+    # Healthcare
+    "johnson and johnson": "JNJ", "johnson": "JNJ", "pfizer": "PFE",
+    "moderna": "MRNA", "unitedhealth": "UNH", "abbvie": "ABBV",
+    "eli lilly": "LLY", "lilly": "LLY",
+    # Energy
+    "exxon": "XOM", "exxonmobil": "XOM", "chevron": "CVX",
+    "conocophillips": "COP", "schlumberger": "SLB",
+    # ETF / Index
+    "s&p 500": "SPY", "sp500": "SPY", "s&p": "SPY",
+    "nasdaq 100": "QQQ", "nasdaq": "QQQ",
+    "dow jones": "DIA", "russell 2000": "IWM",
 }
 
-# ── Financial keywords ─────────────────────────────────────────────────────────
+# ── Financial keywords — must be clearly finance-related ─────────────────────
 FINANCIAL_KEYWORDS = {
     # Actions
-    "buy","sell","hold","invest","trade","purchase","short","long","exit","enter",
+    "buy","sell","hold","invest","trade","purchase","short","long",
     # Instruments
-    "stock","stocks","share","shares","equity","etf","option","future","bond","fund","index",
-    "crypto","bitcoin","btc","ethereum","eth",
+    "stock","stocks","share","shares","equity","etf","option","futures","bond",
+    "mutual fund","index fund","crypto","bitcoin","btc","ethereum","eth",
     # Indicators
-    "rsi","macd","ema","sma","vwap","atr","adx","obv","bollinger","stochastic",
-    "moving average","momentum","oscillator","divergence","crossover",
+    "rsi","macd","ema","sma","vwap","atr","adx","obv","bollinger bands",
+    "moving average","stochastic","momentum","divergence","crossover",
     # Analysis
-    "price","chart","technical","fundamental","analysis","predict","forecast",
-    "signal","trend","support","resistance","breakout","reversal","pattern",
-    "candlestick","volume","volatility","beta","alpha","correlation",
+    "technical analysis","fundamental analysis","predict","forecast",
+    "price target","support level","resistance level","breakout","candlestick",
+    "volatility","beta","sharpe ratio",
     # Financials
-    "earnings","revenue","profit","loss","margin","pe","eps","dividend",
-    "market cap","valuation","ipo","split","buyback","guidance",
+    "earnings","revenue","profit","loss","margin","p/e ratio","eps","dividend",
+    "market cap","valuation","ipo","stock split","buyback",
     # Market
-    "market","nasdaq","nyse","sp500","dow","vix","bull","bear","rally",
-    "correction","crash","recession","inflation","fed","interest rate",
-    "portfolio","watchlist","backtest","strategy","risk","return",
-    # Money / budget
-    "dollar","dollars","usd","rupee","rupees","inr",
-    "price target","stop loss","take profit","entry",
-    "under","below","afford","budget","invest","investment",
-    "ready to buy","which stock","which stocks",
+    "stock market","bull market","bear market","market rally","correction",
+    "recession","inflation","federal reserve","interest rate",
+    "portfolio","watchlist","backtest","trading strategy",
+    # Budget / recommendation
+    "which stock","which stocks","best stock","top stock",
+    "recommend","suggest","afford","budget",
+    "should i buy","should i sell","worth buying","price of",
+}
+
+# Strict stop-words — these uppercase words must NEVER be treated as tickers
+_STOP_WORDS = {
+    "I","A","AN","THE","AND","OR","IN","ON","AT","TO","MY","ME","IS","IT",
+    "DO","GO","NO","SO","UP","AI","US","UK","EU","UN","WHO","WHY","HOW",
+    "CAN","NOW","GET","FOR","USD","INR","YES","ARE","WAS","HAS","HAD",
+    "NOT","BUT","ALL","ANY","ITS","HIM","HER","HIS","OUR","OUT","OFF",
+    "NEW","OLD","BIG","TOP","LOW","HIGH","DAY","WEEK","YEAR","TIME",
+    "TELL","SHOW","WHAT","WHEN","WILL","WITH","FROM","THAT","THIS","THEY",
+    "GIVE","HELP","NEED","WANT","LIKE","JUST","ALSO","ONLY","VERY","MUCH",
+    "GOOD","BEST","NEXT","LAST","SOME","MANY","MORE","LESS","OVER","UNDER",
+    "ABOUT","AFTER","BEFORE","BETWEEN","DURING","WHILE","SINCE","UNTIL",
+    "BECAUSE","THOUGH","ALTHOUGH","HOWEVER","THEREFORE","THUS",
+    # Common English words that look like tickers — must never be treated as symbols
+    "STOCK","STOCKS","PRICE","PRICES","SHARE","SHARES","FUND","FUNDS",
+    "CHEAP","PENNY","DEMAND","PROFIT","LOSS","GAIN","GAINS","RISK",
+    "PICK","PICKS","LIST","SHOW","GIVE","FIND","TELL","MAKE","TAKE",
+    "LIVE","REAL","FAST","SAFE","FREE","OPEN","CLOSE","LONG","TERM",
+    "CALL","PUTS","PUTS","CASH","LOAN","DEBT","EARN","SAVE","GROW",
+    "PLAN","GOAL","IDEA","INFO","DATA","NEWS","TIPS","HINT","RATE",
 }
 
 REJECTION_MESSAGE = (
-    "I am a **Stock AI Assistant**.\n\n"
-    "I only answer questions related to:\n"
-    "- US stock analysis & price prediction\n"
-    "- Technical indicators (RSI, MACD, EMA, Bollinger Bands, etc.)\n"
-    "- Buy / Hold / Sell recommendations\n"
-    "- Market overview & sector analysis\n"
-    "- Portfolio & risk management\n\n"
-    "Please ask me something like:\n"
-    "- *\"Should I buy AAPL?\"*\n"
-    "- *\"Predict Tesla tomorrow\"*\n"
-    "- *\"What is the RSI for NVDA?\"*\n"
-    "- *\"Compare Apple and Microsoft\"*"
+    "I'm a **Stock Market AI Assistant** — I only answer questions about:\n\n"
+    "- 📈 Stock analysis & price predictions (AAPL, TSLA, NVDA, etc.)\n"
+    "- 🔍 Technical indicators (RSI, MACD, Bollinger Bands, EMA)\n"
+    "- 💡 Buy / Hold / Sell signals & trade setups\n"
+    "- 🌍 Market overview, sector analysis, top movers\n"
+    "- 💰 Portfolio, risk management & budget-based recommendations\n\n"
+    "**Try asking:**\n"
+    "- *\"Should I buy Apple?\"*\n"
+    "- *\"Analyze NVDA\"*\n"
+    "- *\"Compare Tesla and Ford\"*\n"
+    "- *\"Best stocks under $200\"*\n"
+    "- *\"What is the RSI for Microsoft?\"*"
 )
 
 
@@ -90,29 +136,27 @@ def classify(prompt: str) -> tuple[bool, str | None]:
     text  = prompt.lower().strip()
     upper = prompt.upper()
 
-    # 1. Check for known tickers (word boundary match)
+    # 1. Known dashboard tickers (exact word boundary)
     for ticker in KNOWN_TICKERS:
-        if re.search(rf'\b{ticker}\b', upper):
+        escaped = re.escape(ticker)
+        if re.search(rf'\b{escaped}\b', upper):
             return True, ticker
 
-    # 2. Check company names
-    for name, ticker in COMPANY_NAMES.items():
+    # 2. Known company names (substring match, longest first to avoid partial hits)
+    for name in sorted(COMPANY_NAMES, key=len, reverse=True):
         if name in text:
-            return True, ticker
+            return True, COMPANY_NAMES[name]
 
-    # 3. Check financial keywords
-    words = set(re.findall(r'\b\w[\w\s]*\b', text))
+    # 3. Financial keywords (exact phrase match)
     for kw in FINANCIAL_KEYWORDS:
         if kw in text:
             return True, None
 
-    # 4. Generic uppercase 1-5 char word that looks like a ticker
-    matches = re.findall(r'\b([A-Z]{1,5})\b', upper)
-    skip = {"I","A","THE","AND","OR","IN","ON","AT","TO","MY","ME","IS","IT",
-            "DO","GO","NO","SO","UP","AI","US","UK","EU","UN","WHO","WHY",
-            "HOW","CAN","NOW","GET","FOR","USD","INR","BUY","SELL","YES","NO"}
+    # 4. Dynamic ticker: 2-5 uppercase letters not in stop-word list
+    #    This handles queries like "analyze FORD" or "what about RIVN"
+    matches = re.findall(r'\b([A-Z]{2,5})\b', upper)
     for m in matches:
-        if m not in skip and len(m) >= 2:
+        if m not in _STOP_WORDS and m not in {"BUY","SELL","HOLD","ETF","IPO","GDP","VIX","ATR"}:
             return True, m
 
     return False, None

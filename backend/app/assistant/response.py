@@ -37,6 +37,11 @@ def build_prediction_response(result: PredictionResult, intent: Intent) -> str:
     label  = SIGNAL_COLOR_LABEL.get(result.signal, result.signal)
     ind    = result.indicators
 
+    price = result.indicators.get("price") or result.entry or 0
+    shares_1k  = int(1_000  // price) if price > 0 else 0
+    shares_5k  = int(5_000  // price) if price > 0 else 0
+    shares_10k = int(10_000 // price) if price > 0 else 0
+
     lines = [
         f"## {emoji} {result.symbol} — {label}",
         "",
@@ -52,6 +57,13 @@ def build_prediction_response(result: PredictionResult, intent: Intent) -> str:
         f"| Stop Loss | {_fmt(result.stop_loss)} |",
         f"| Upside | {result.upside_pct:+.1f}% |",
         f"| Risk/Reward | 1:{result.risk_reward:.1f} |",
+        "",
+        "### 🛒 How Many Shares Can You Buy?",
+        f"| Budget | Shares |",
+        f"|---|---|",
+        f"| $1,000 | {'~' + str(shares_1k) + ' shares' if shares_1k > 0 else 'fractional only'} |",
+        f"| $5,000 | {'~' + str(shares_5k) + ' shares' if shares_5k > 0 else 'fractional only'} |",
+        f"| $10,000 | {'~' + str(shares_10k) + ' shares' if shares_10k > 0 else 'fractional only'} |",
         "",
         "### 📈 Key Indicators",
         f"- **RSI(14):** {_fmt(ind.get('rsi'), '', 1)} "
@@ -243,7 +255,7 @@ def build_education_response(topic: str) -> str:
     )
 
 
-def build_recommendation_response(picks: list[dict]) -> str:
+def build_recommendation_response(picks: list[dict], intent=None) -> str:
     if not picks:
         return (
             "## 📊 Stock Recommendations\n\n"
@@ -253,24 +265,47 @@ def build_recommendation_response(picks: list[dict]) -> str:
             "- *\"Compare MSFT and GOOGL\"*"
         )
 
-    # Separate into strong signals and others
+    count        = getattr(intent, "count", 5)
+    price_filter = getattr(intent, "price_filter", None)
+    sort_by      = getattr(intent, "sort_by", "score")
+
+    # Build header label
+    if price_filter == "low":
+        filter_label = "💲 Lowest-Priced"
+    elif price_filter == "high":
+        filter_label = "💎 Highest-Priced"
+    else:
+        filter_label = "🏆 Top"
+
     strong = [p for p in picks if p["signal"] in ("STRONG BUY", "BUY")]
     others = [p for p in picks if p["signal"] not in ("STRONG BUY", "BUY")]
-    display = (strong or others)[:5]  # always show top 5
+    # Respect the already-sorted order from the handler; just cap at count
+    display = picks[:count]
 
     is_after_hours = not strong
-    header = "## 🏆 Top Stock Picks\n"
+    header = f"## {filter_label} Stock Picks\n"
     if is_after_hours:
         header += "\n> 📌 **Note:** US markets are currently closed. Signals are based on the latest available data — use these for planning your next session.\n"
+
+    # Sort label for user clarity
+    if sort_by == "price_asc":
+        header += "\n> 🔢 Sorted by: **Lowest Price First**\n"
+    elif sort_by == "price_desc":
+        header += "\n> 🔢 Sorted by: **Highest Price First**\n"
+    else:
+        header += "\n> 🔢 Sorted by: **Signal Score**\n"
 
     lines = [header]
     for i, p in enumerate(display, 1):
         emoji = SIGNAL_EMOJI.get(p["signal"], "🔄")
+        price = p.get("price") or p.get("entry", 0)
+        shares_1k = int(1_000 // price) if price > 0 else 0
+        shares_str = f"~{shares_1k} shares per $1k" if shares_1k > 0 else "fractional shares"
         lines.append(
             f"**{i}. {emoji} {p['symbol']}** — {p['signal']} "
             f"(Score: {p['score']:.0f}/100, Confidence: {p['confidence']:.0f}%)\n"
-            f"   Entry: ${p['entry']:,.2f} | Target: ${p['target']:,.2f} | "
-            f"Stop: ${p['stop_loss']:,.2f} | Upside: {p['upside_pct']:+.1f}%\n"
+            f"   Price: ~${price:,.2f} | Entry: ${p['entry']:,.2f} | Target: ${p['target']:,.2f} | "
+            f"Stop: ${p['stop_loss']:,.2f} | Upside: {p['upside_pct']:+.1f}% | 🛒 {shares_str}\n"
         )
 
     lines.append("\n*Not financial advice. Always do your own research.*")
@@ -302,34 +337,53 @@ def build_market_response(movers: dict) -> str:
 def build_budget_response(budget: float, picks: list[dict]) -> str:
     if not picks:
         return (
-            f"## 💰 Stocks for ${budget:,.0f} Budget\n\n"
+            f"## 💰 Investment Suggestions for ${budget:,.0f} Budget\n\n"
             f"Unable to fetch live data right now. Consider these ETFs which support fractional shares:\n"
             f"- **SPY** — S&P 500 ETF\n"
-            f"- **QQQ** — NASDAQ 100 ETF\n"
-            f"- **VTI** — Total Market ETF\n\n"
+            f"- **QQQ** — NASDAQ 100 ETF\n\n"
             f"*Ask me: \"Analyze SPY\" for a full signal.*"
         )
 
-    affordable = [p for p in picks if p.get("price", 0) <= budget]
-    display    = affordable[:5] if affordable else picks[:5]
+    affordable = [p for p in picks if p.get("price", 0) and 0 < p["price"] <= budget]
+    display    = affordable[:6] if affordable else picks[:6]
     over_budget = not affordable
 
-    lines = [f"## 💰 Best Stocks for ${budget:,.0f} Budget\n"]
-    if over_budget:
-        lines.append(f"> 💡 No stocks in the scan list are priced under ${budget:,.0f}. Showing top picks — consider **fractional shares** on brokers like Robinhood or Webull.\n")
+    lines = [f"## 💰 Investment Suggestions for ${budget:,.0f} Budget"]
+    lines.append("Here are the top stocks you can afford right now:\n")
 
-    for p in display:
-        qty   = int(budget // p["price"]) if p.get("price") and p["price"] > 0 else 0
-        emoji = SIGNAL_EMOJI.get(p.get("signal", "HOLD"), "🔄")
-        shares_note = f"~**{qty} shares**" if qty > 0 else "fractional shares"
+    if over_budget:
         lines.append(
-            f"**{emoji} {p['symbol']}** — ~${p.get('price',0):,.2f}/share\n"
-            f"   Signal: {p.get('signal','N/A')} | Score: {p.get('score',0):.0f}/100 | "
-            f"You can buy {shares_note}\n"
+            f"> 💡 No stocks are priced under ${budget:,.0f} as whole shares. "
+            f"Showing top picks — consider **fractional shares** on brokers like Robinhood or Webull.\n"
         )
 
-    lines.append(
-        "\n💡 **Tip:** Diversify — don't put all your budget in one stock.\n"
-        "*Not financial advice. Always do your own research.*"
-    )
+    for p in display:
+        price  = p.get("price", 0)
+        signal = p.get("signal", "HOLD")
+        conf   = p.get("confidence", 0)
+        name   = p.get("name", "")
+        sector = p.get("sector", "")
+        emoji  = SIGNAL_EMOJI.get(signal, "🔄")
+        qty    = int(budget // price) if price > 0 else 0
+        shares_note = f"~{qty} shares" if qty > 0 else "fractional shares"
+
+        name_sector = f" — {name} ({sector})" if name else ""
+        conf_str    = f" ({int(conf)}% confidence)" if conf else ""
+
+        lines.append(
+            f"{emoji} **{p['symbol']}**{name_sector}\n"
+            f"Price: ~${price:,.2f} | Signal: {signal}{conf_str} | You can buy **{shares_note}**\n"
+        )
+
+    # Sector split tip
+    sectors = list(dict.fromkeys(p.get("sector", "") for p in display if p.get("sector")))
+    if len(sectors) >= 2:
+        tip = f"Consider splitting: e.g., 40% in {sectors[0]}, 30% in ETFs, 30% in other sectors."
+    else:
+        tip = "Consider splitting across Tech, ETFs, and other sectors for diversification."
+
+    lines += [
+        f"💡 **Tip:** Diversify across sectors. Don't put all your budget into one stock. {tip}\n",
+        "⚠️ **Disclaimer:** Prices are approximate. Always verify on your broker before buying.",
+    ]
     return "\n".join(lines)

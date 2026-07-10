@@ -6,28 +6,16 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.models import User, AIChatHistory
 from app.schemas.schemas import ChatRequest, ChatOut
-from app.services.ai_service import chat_with_ai
+from app.assistant.assistant import chat as assistant_chat
 
 router = APIRouter(prefix="/assistant", tags=["AI Assistant"])
 
 
 @router.post("/chat", response_model=ChatOut)
 async def chat(body: ChatRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    # Fetch last 6 turns of history for conversation context
-    hist_result = await db.execute(
-        select(AIChatHistory)
-        .where(AIChatHistory.user_id == user.id)
-        .order_by(AIChatHistory.created_at.desc())
-        .limit(6)
-    )
-    history = [
-        {"prompt": h.prompt, "response": h.response}
-        for h in reversed(hist_result.scalars().all())
-    ]
-
-    response_text = await chat_with_ai(
+    response_text = await assistant_chat(
         prompt=body.prompt,
-        history=history,
+        user_id=str(user.id),
         symbol=body.symbol,
     )
 
