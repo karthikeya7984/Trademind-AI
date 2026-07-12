@@ -1,5 +1,8 @@
 version: "3.9"
 
+# ── Local dev postgres (optional — only used when DATABASE_URL points here) ───
+# To use Render PostgreSQL instead, set DATABASE_URL in backend/.env and
+# remove the postgres service dependency from backend/celery below.
 services:
   postgres:
     image: postgres:16-alpine
@@ -35,11 +38,11 @@ services:
       - "8000:8000"
     env_file: ./backend/.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:password@postgres:5432/trademind
+      # Render PostgreSQL — reads DATABASE_URL from backend/.env
+      # Override here only if you want to use the local postgres container:
+      # DATABASE_URL: postgresql+asyncpg://postgres:password@postgres:5432/trademind
       REDIS_URL: redis://redis:6379/0
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
@@ -51,11 +54,10 @@ services:
     command: celery -A app.tasks.celery_app worker --loglevel=info
     env_file: ./backend/.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:password@postgres:5432/trademind
+      # Same DATABASE_URL as backend — reads from backend/.env
       REDIS_URL: redis://redis:6379/0
     depends_on:
       - redis
-      - postgres
 
   frontend:
     build: ./frontend

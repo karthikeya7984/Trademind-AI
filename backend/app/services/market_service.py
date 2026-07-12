@@ -1,25 +1,29 @@
 """
 market_service.py
 -----------------
-Data priority:
-  1. yfinance bulk download  – fast, free, handles all symbols at once
-  2. Alpha Vantage            – single quotes, intraday, history fallback
-  3. yfinance single Ticker   – last-resort per-symbol
+Data sources (in priority order):
+  1. Yahoo Finance v8 API  — direct HTTP, no library dependency, always works
+  2. Alpha Vantage          — fallback for quotes/history
 
-Alpha Vantage free tier: 25 req/day, 5/min — only used when needed.
 Redis caching: quotes=2min, history=5min, indices=1min, movers=1min
 """
 
 import json
 import math
 import asyncio
-import importlib
 import httpx
+from datetime import datetime, timezone
 from app.core.redis import cache_get, cache_set
 from app.core.config import settings
 
-_AV_BASE = "https://www.alphavantage.co/query"
-_av_semaphore = asyncio.Semaphore(2)  # max 2 concurrent AV requests
+_AV_BASE  = "https://www.alphavantage.co/query"
+_YF_BASE  = "https://query1.finance.yahoo.com/v8/finance/chart"
+_YF_BASE2 = "https://query2.finance.yahoo.com/v8/finance/chart"
+_HEADERS  = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Accept": "application/json",
+}
+_av_semaphore = asyncio.Semaphore(2)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -44,137 +48,99 @@ def _sanitize(obj):
 
 def _fmt_volume(v) -> int:
     try:
-        import pandas as pd
         return 0 if (v is None or (isinstance(v, float) and math.isnan(v))) else int(v)
     except Exception:
         return 0
 
 
-# ── yfinance (bulk – single network call for all symbols) ─────────────────────
+# ── Yahoo Finance v8 direct HTTP ───────────────────────────────────────────────
 
-def _yf_bulk(symbols: list[str]) -> dict:
-    """Download last 5 days for all symbols in ONE yfinance call."""
+async def _yf_chart(symbol: str, period: str = "5d", interval: str = "1d") -> dict | None:
+    """Fetch raw Yahoo Finance chart JSON. Tries query1 then query2."""
+    yf_sym = symbol.replace(".", "-")
+    params = {
+        "range": period,
+        "interval": interval,
+        "includePrePost": "false",
+        "events": "div,splits",
+    }
+    for base in (_YF_BASE, _YF_BASE2):
+        try:
+            async with httpx.AsyncClient(timeout=10, headers=_HEADERS) as client:
+                r = await client.get(f"{base}/{yf_sym}", params=params)
+            if r.status_code == 200:
+                data = r.json()
+                result = data.get("chart", {}).get("result")
+                if result:
+                    return result[0]
+        except Exception:
+            continue
+    return None
+
+
+async def _yf_quote(symbol: str) -> dict | None:
+    """Single quote via Yahoo Finance v8."""
+    chart = await _yf_chart(symbol, period="5d", interval="1d")
+    if not chart:
+        return None
     try:
-        import pandas as pd
-        yf = importlib.import_module("yfinance")
-        # yfinance uses BRK-B not BRK.B; map back after download
-        yf_symbols = [s.replace(".", "-") for s in symbols]
-        sym_map = {yf: orig for yf, orig in zip(yf_symbols, symbols)}
-        raw = " ".join(yf_symbols)
-        df = yf.download(raw, period="5d", interval="1d",
-                         group_by="ticker", auto_adjust=True,
-                         progress=False, threads=True)
-        result = {}
-        single = len(yf_symbols) == 1
-
-        for yf_sym in yf_symbols:
-            orig_sym = sym_map[yf_sym]
-            try:
-                if single:
-                    sdf = df
-                elif isinstance(df.columns, pd.MultiIndex):
-                    # yfinance can use either (field, ticker) or (ticker, field) ordering
-                    lvl0 = df.columns.get_level_values(0).unique().tolist()
-                    lvl1 = df.columns.get_level_values(1).unique().tolist()
-                    if yf_sym in lvl1:
-                        sdf = df.xs(yf_sym, axis=1, level=1)
-                    elif yf_sym in lvl0:
-                        sdf = df.xs(yf_sym, axis=1, level=0)
-                    else:
-                        continue
-                else:
-                    sdf = df
-
-                if sdf is None or (hasattr(sdf, "empty") and sdf.empty):
-                    continue
-                # Normalize column names
-                sdf = sdf.copy()
-                sdf.columns = [c.strip().title() for c in sdf.columns]
-                if "Close" not in sdf.columns:
-                    continue
-                sdf = sdf.dropna(subset=["Close"])
-                if len(sdf) < 1:
-                    continue
-
-                today = sdf.iloc[-1]
-                prev_close = float(sdf.iloc[-2]["Close"]) if len(sdf) >= 2 else float(today.get("Open", today["Close"]))
-                price = float(today["Close"])
-                if not price or price <= 0:
-                    continue
-
-                result[orig_sym] = _sanitize({
-                    "symbol": orig_sym,
-                    "price": round(price, 2),
-                    "change": round(price - prev_close, 2),
-                    "change_pct": round((price - prev_close) / prev_close * 100, 2) if prev_close else 0.0,
-                    "volume": _fmt_volume(today.get("Volume")),
-                    "market_cap": None,
-                    "high": _safe_float(today.get("High")),
-                    "low": _safe_float(today.get("Low")),
-                    "open": _safe_float(today.get("Open")),
-                    "prev_close": round(prev_close, 2),
-                    "source": "yfinance",
-                    "currency": "USD",
-                })
-            except Exception:
-                continue
-        return result
-    except Exception:
-        return {}
-
-
-def _yf_single(symbol: str) -> dict | None:
-    yf_symbol = symbol.replace(".", "-")
-    try:
-        yf = importlib.import_module("yfinance")
-        info = yf.Ticker(yf_symbol).fast_info
-        price = _safe_float(info.last_price)
+        meta  = chart["meta"]
+        price = _safe_float(meta.get("regularMarketPrice"))
         if not price:
             return None
-        prev = _safe_float(info.previous_close) or price
+        prev  = _safe_float(meta.get("chartPreviousClose") or meta.get("previousClose")) or price
+        chg   = round(price - prev, 2)
+        chgp  = round(chg / prev * 100, 2) if prev else 0.0
         return _sanitize({
-            "symbol": symbol,
-            "price": price,
-            "change": round(price - prev, 2),
-            "change_pct": round((price - prev) / prev * 100, 2) if prev else 0.0,
-            "volume": _safe_float(getattr(info, "three_month_average_volume", 0), 0) or 0,
-            "market_cap": _safe_float(getattr(info, "market_cap", None), 0),
-            "high": _safe_float(getattr(info, "day_high", None)),
-            "low": _safe_float(getattr(info, "day_low", None)),
-            "open": _safe_float(getattr(info, "open", None)),
+            "symbol":     symbol,
+            "price":      price,
+            "change":     chg,
+            "change_pct": chgp,
+            "volume":     _fmt_volume(meta.get("regularMarketVolume")),
+            "market_cap": None,
+            "high":       _safe_float(meta.get("regularMarketDayHigh")),
+            "low":        _safe_float(meta.get("regularMarketDayLow")),
+            "open":       _safe_float(meta.get("regularMarketOpen")),
             "prev_close": prev,
-            "source": "yfinance_single",
-            "currency": "USD",
+            "source":     "yahoo",
+            "currency":   meta.get("currency", "USD"),
         })
     except Exception:
         return None
 
 
-def _yf_history(symbol: str, period: str, interval: str) -> list[dict]:
+async def _yf_history_direct(symbol: str, period: str, interval: str) -> list[dict]:
+    """Historical OHLCV via Yahoo Finance v8."""
     period_map = {"1w": "5d", "1W": "5d", "1m": "1mo", "1M": "1mo", "1Y": "1y", "5Y": "5y"}
-    # yfinance uses BRK-B not BRK.B
-    yf_symbol = symbol.replace(".", "-")
+    yf_period = period_map.get(period, period)
+    chart = await _yf_chart(symbol, period=yf_period, interval=interval)
+    if not chart:
+        return []
     try:
-        yf = importlib.import_module("yfinance")
-        df = yf.Ticker(yf_symbol).history(period=period_map.get(period, period), interval=interval)
-        if df.empty:
-            return []
-        df.reset_index(inplace=True)
-        date_col = "Datetime" if "Datetime" in df.columns else "Date"
-        df = df.rename(columns={date_col: "date", "Open": "open", "High": "high",
-                                  "Low": "low", "Close": "close", "Volume": "volume"})
+        timestamps = chart.get("timestamp", [])
+        indicators = chart.get("indicators", {})
+        quote_data = indicators.get("quote", [{}])[0]
+        opens   = quote_data.get("open",   [])
+        highs   = quote_data.get("high",   [])
+        lows    = quote_data.get("low",    [])
+        closes  = quote_data.get("close",  [])
+        volumes = quote_data.get("volume", [])
+        adj = indicators.get("adjclose", [{}])
+        adjcloses = adj[0].get("adjclose", []) if adj else []
+
         records = []
-        for _, row in df[["date", "open", "high", "low", "close", "volume"]].iterrows():
+        for i, ts in enumerate(timestamps):
             try:
-                o, h, l, c = (_safe_float(row["open"], 4), _safe_float(row["high"], 4),
-                               _safe_float(row["low"], 4), _safe_float(row["close"], 4))
+                raw_c = (adjcloses[i] if adjcloses and i < len(adjcloses) else None) or (closes[i] if i < len(closes) else None)
+                c = _safe_float(raw_c, 4)
+                o = _safe_float(opens[i]   if i < len(opens)   else None, 4)
+                h = _safe_float(highs[i]   if i < len(highs)   else None, 4)
+                l = _safe_float(lows[i]    if i < len(lows)    else None, 4)
+                v = _fmt_volume(volumes[i] if i < len(volumes) else None)
                 if None in (o, h, l, c):
                     continue
-                records.append({
-                    "date": row["date"].isoformat() if hasattr(row["date"], "isoformat") else str(row["date"]),
-                    "open": o, "high": h, "low": l, "close": c,
-                    "volume": _fmt_volume(row["volume"]),
-                })
+                dt = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+                records.append({"date": dt, "open": o, "high": h, "low": l, "close": c, "volume": v})
             except Exception:
                 continue
         return records
@@ -182,17 +148,20 @@ def _yf_history(symbol: str, period: str, interval: str) -> list[dict]:
         return []
 
 
-def _yf_index(ticker_sym: str) -> dict | None:
+async def _yf_index_direct(ticker_sym: str) -> dict | None:
+    """Index quote via Yahoo Finance v8."""
+    chart = await _yf_chart(ticker_sym, period="5d", interval="1d")
+    if not chart:
+        return None
     try:
-        yf = importlib.import_module("yfinance")
-        fi = yf.Ticker(ticker_sym).fast_info  # index tickers like ^GSPC don't need dot fix
-        price = _safe_float(fi.last_price)
+        meta  = chart["meta"]
+        price = _safe_float(meta.get("regularMarketPrice"))
         if not price:
             return None
-        prev = _safe_float(fi.previous_close) or price
+        prev  = _safe_float(meta.get("chartPreviousClose") or meta.get("previousClose")) or price
         return {
-            "value": price,
-            "change": round(price - prev, 2),
+            "value":      price,
+            "change":     round(price - prev, 2),
             "change_pct": round((price - prev) / prev * 100, 2) if prev else 0.0,
         }
     except Exception:
@@ -218,23 +187,23 @@ async def _av_quote(symbol: str) -> dict | None:
             if not av.get("05. price"):
                 return None
             price = _safe_float(av["05. price"])
-            prev = _safe_float(av.get("08. previous close", price))
+            prev  = _safe_float(av.get("08. previous close", price))
             if not price:
                 return None
             pct = _safe_float(av.get("10. change percent", "0%").replace("%", "")) or 0.0
             return _sanitize({
-                "symbol": symbol,
-                "price": price,
-                "change": round(price - (prev or price), 2),
+                "symbol":     symbol,
+                "price":      price,
+                "change":     round(price - (prev or price), 2),
                 "change_pct": pct,
-                "volume": int(av.get("06. volume", 0) or 0),
+                "volume":     int(av.get("06. volume", 0) or 0),
                 "market_cap": None,
-                "high": _safe_float(av.get("03. high")),
-                "low": _safe_float(av.get("04. low")),
-                "open": _safe_float(av.get("02. open")),
+                "high":       _safe_float(av.get("03. high")),
+                "low":        _safe_float(av.get("04. low")),
+                "open":       _safe_float(av.get("02. open")),
                 "prev_close": prev,
-                "source": "alphavantage",
-                "currency": "USD",
+                "source":     "alphavantage",
+                "currency":   "USD",
             })
         except Exception:
             return None
@@ -257,11 +226,11 @@ async def _av_daily_history(symbol: str, compact: bool = True) -> list[dict]:
             for dt, v in sorted(ts.items()):
                 try:
                     records.append({
-                        "date": dt,
-                        "open": _safe_float(v.get("1. open"), 4),
-                        "high": _safe_float(v.get("2. high"), 4),
-                        "low": _safe_float(v.get("3. low"), 4),
-                        "close": _safe_float(v.get("5. adjusted close"), 4),
+                        "date":   dt,
+                        "open":   _safe_float(v.get("1. open"), 4),
+                        "high":   _safe_float(v.get("2. high"), 4),
+                        "low":    _safe_float(v.get("3. low"),  4),
+                        "close":  _safe_float(v.get("5. adjusted close"), 4),
                         "volume": int(v.get("6. volume", 0) or 0),
                     })
                 except Exception:
@@ -269,6 +238,45 @@ async def _av_daily_history(symbol: str, compact: bool = True) -> list[dict]:
             return records
         except Exception:
             return []
+
+
+async def _av_company_overview(symbol: str) -> dict:
+    key = f"overview:{symbol}"
+    cached = await cache_get(key)
+    if cached:
+        return json.loads(cached)
+    if not settings.ALPHA_VANTAGE_KEY:
+        return {}
+    async with _av_semaphore:
+        try:
+            async with httpx.AsyncClient(timeout=12) as client:
+                resp = await client.get(_AV_BASE, params={
+                    "function": "OVERVIEW", "symbol": symbol,
+                    "apikey": settings.ALPHA_VANTAGE_KEY,
+                })
+            body = resp.json()
+            if "Note" in body or "Information" in body or not body.get("Symbol"):
+                return {}
+            data = _sanitize({
+                "name":           body.get("Name", ""),
+                "sector":         body.get("Sector", ""),
+                "industry":       body.get("Industry", ""),
+                "description":    body.get("Description", ""),
+                "market_cap":     _safe_float(body.get("MarketCapitalization"), 0),
+                "pe_ratio":       _safe_float(body.get("PERatio")),
+                "eps":            _safe_float(body.get("EPS")),
+                "dividend_yield": _safe_float(body.get("DividendYield")),
+                "week_52_high":   _safe_float(body.get("52WeekHigh")),
+                "week_52_low":    _safe_float(body.get("52WeekLow")),
+                "beta":           _safe_float(body.get("Beta")),
+                "analyst_target": _safe_float(body.get("AnalystTargetPrice")),
+                "exchange":       body.get("Exchange", ""),
+                "currency":       body.get("Currency", "USD"),
+            })
+            await cache_set(key, json.dumps(data), ttl=86400)
+            return data
+        except Exception:
+            return {}
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -279,11 +287,9 @@ async def get_stock_quote(symbol: str) -> dict:
     if cached:
         return json.loads(cached)
 
-    # Try AV first for a single symbol (most accurate)
-    data = await _av_quote(symbol)
-    # Fallback to yfinance
+    data = await _yf_quote(symbol)
     if not data:
-        data = await asyncio.to_thread(_yf_single, symbol)
+        data = await _av_quote(symbol)
     if not data:
         return {"symbol": symbol, "error": "No data available", "price": None}
 
@@ -293,15 +299,13 @@ async def get_stock_quote(symbol: str) -> dict:
 
 
 async def get_bulk_quotes(symbols: list[str]) -> dict:
-    """Chunked yfinance bulk calls — avoids MultiIndex issues with large batches."""
+    """Fetch quotes for multiple symbols concurrently via Yahoo Finance v8."""
     key = f"bulk:{','.join(sorted(symbols))}"
     cached = await cache_get(key)
     if cached:
         return json.loads(cached)
 
     result: dict = {}
-
-    # Check per-symbol cache first
     uncached = []
     for sym in symbols:
         c = await cache_get(f"quote:{sym}")
@@ -311,27 +315,21 @@ async def get_bulk_quotes(symbols: list[str]) -> dict:
             uncached.append(sym)
 
     if uncached:
-        # Chunk into groups of 20 to avoid yfinance MultiIndex issues with large batches
         CHUNK = 20
         for i in range(0, len(uncached), CHUNK):
             chunk = uncached[i:i + CHUNK]
-            bulk = await asyncio.to_thread(_yf_bulk, chunk)
-            for sym, q in bulk.items():
-                result[sym] = q
-                await cache_set(f"quote:{sym}", json.dumps(q), ttl=120)
+            quotes = await asyncio.gather(*[_yf_quote(s) for s in chunk], return_exceptions=True)
+            for sym, q in zip(chunk, quotes):
+                if q and not isinstance(q, Exception):
+                    result[sym] = q
+                    await cache_set(f"quote:{sym}", json.dumps(q), ttl=120)
 
-        # Any still missing → individual yfinance single fallback
+        # AV fallback for any still missing
         still_missing = [s for s in uncached if s not in result]
         if still_missing:
-            async def _one(sym):
-                q = await asyncio.to_thread(_yf_single, sym)
-                return sym, q
-            pairs = await asyncio.gather(*[_one(s) for s in still_missing], return_exceptions=True)
-            for item in pairs:
-                if isinstance(item, Exception):
-                    continue
-                sym, q = item
-                if q:
+            av_quotes = await asyncio.gather(*[_av_quote(s) for s in still_missing], return_exceptions=True)
+            for sym, q in zip(still_missing, av_quotes):
+                if q and not isinstance(q, Exception):
                     result[sym] = q
                     await cache_set(f"quote:{sym}", json.dumps(q), ttl=120)
 
@@ -346,10 +344,8 @@ async def get_historical_data(symbol: str, period: str = "1y", interval: str = "
     if cached:
         return json.loads(cached)
 
-    # yfinance first (free, fast, no daily limits)
-    records = await asyncio.to_thread(_yf_history, symbol, period, interval)
+    records = await _yf_history_direct(symbol, period, interval)
 
-    # AV fallback for daily history only
     if not records and interval == "1d":
         records = await _av_daily_history(symbol, compact=(period not in ("5y", "5Y")))
 
@@ -365,9 +361,11 @@ async def get_intraday_data(symbol: str, interval: str = "5min") -> list[dict]:
     if cached:
         return json.loads(cached)
 
-    records: list[dict] = []
+    yf_interval_map = {"1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m", "60min": "60m"}
+    yf_interval = yf_interval_map.get(interval, "5m")
+    records = await _yf_history_direct(symbol, period="1d", interval=yf_interval)
 
-    if settings.ALPHA_VANTAGE_KEY:
+    if not records and settings.ALPHA_VANTAGE_KEY:
         async with _av_semaphore:
             try:
                 async with httpx.AsyncClient(timeout=15) as client:
@@ -383,11 +381,11 @@ async def get_intraday_data(symbol: str, interval: str = "5min") -> list[dict]:
                     for dt, v in list(ts.items())[:100]:
                         try:
                             records.append({
-                                "date": dt,
-                                "open": _safe_float(v["1. open"], 4),
-                                "high": _safe_float(v["2. high"], 4),
-                                "low": _safe_float(v["3. low"], 4),
-                                "close": _safe_float(v["4. close"], 4),
+                                "date":   dt,
+                                "open":   _safe_float(v["1. open"], 4),
+                                "high":   _safe_float(v["2. high"], 4),
+                                "low":    _safe_float(v["3. low"],  4),
+                                "close":  _safe_float(v["4. close"], 4),
                                 "volume": int(v["5. volume"]),
                             })
                         except Exception:
@@ -395,9 +393,6 @@ async def get_intraday_data(symbol: str, interval: str = "5min") -> list[dict]:
                     records.reverse()
             except Exception:
                 pass
-
-    if not records:
-        records = await get_historical_data(symbol, period="5d", interval="5m")
 
     if records:
         await cache_set(key, json.dumps(records), ttl=60)
@@ -416,7 +411,7 @@ async def get_market_movers() -> dict:
     sorted_q = sorted(ql, key=lambda x: x.get("change_pct") or 0, reverse=True)
     data = _sanitize({
         "gainers": [q for q in sorted_q if (q.get("change_pct") or 0) >= 0][:6],
-        "losers": sorted(ql, key=lambda x: x.get("change_pct") or 0)[:6],
+        "losers":  sorted(ql, key=lambda x: x.get("change_pct") or 0)[:6],
     })
     await cache_set(key, json.dumps(data), ttl=60)
     return data
@@ -431,7 +426,7 @@ async def get_market_indices() -> dict:
     index_map = {"S&P 500": "^GSPC", "NASDAQ": "^IXIC", "DOW": "^DJI", "VIX": "^VIX"}
     fallback = {"value": 0.0, "change": 0.0, "change_pct": 0.0}
     values = await asyncio.gather(
-        *[asyncio.to_thread(_yf_index, t) for t in index_map.values()],
+        *[_yf_index_direct(t) for t in index_map.values()],
         return_exceptions=True,
     )
     result = _sanitize({
@@ -459,57 +454,21 @@ async def search_stocks(query: str) -> list[dict]:
                                  "exchange": m.get("4. region", "")} for m in matches[:10]]
             except Exception:
                 pass
+    # Yahoo Finance search fallback
     try:
-        yf = importlib.import_module("yfinance")
-        info = yf.Ticker(query).info
-        return [{"symbol": query.upper(), "name": info.get("longName", query), "exchange": info.get("exchange", "")}]
+        async with httpx.AsyncClient(timeout=8, headers=_HEADERS) as client:
+            r = await client.get(
+                "https://query1.finance.yahoo.com/v1/finance/search",
+                params={"q": query, "quotesCount": 10, "newsCount": 0},
+            )
+        hits = r.json().get("quotes", [])
+        return [{"symbol": h.get("symbol", ""), "name": h.get("longname") or h.get("shortname", ""),
+                 "exchange": h.get("exchange", "")} for h in hits if h.get("symbol")][:10]
     except Exception:
         return []
 
 
-async def _av_company_overview(symbol: str) -> dict:
-    """Fetch company overview from Alpha Vantage. Cached for 24h."""
-    key = f"overview:{symbol}"
-    cached = await cache_get(key)
-    if cached:
-        return json.loads(cached)
-    if not settings.ALPHA_VANTAGE_KEY:
-        return {}
-    async with _av_semaphore:
-        try:
-            async with httpx.AsyncClient(timeout=12) as client:
-                resp = await client.get(_AV_BASE, params={
-                    "function": "OVERVIEW", "symbol": symbol,
-                    "apikey": settings.ALPHA_VANTAGE_KEY,
-                })
-            body = resp.json()
-            if "Note" in body or "Information" in body or not body.get("Symbol"):
-                return {}
-            data = {
-                "name": body.get("Name", ""),
-                "sector": body.get("Sector", ""),
-                "industry": body.get("Industry", ""),
-                "description": body.get("Description", ""),
-                "market_cap": _safe_float(body.get("MarketCapitalization"), 0),
-                "pe_ratio": _safe_float(body.get("PERatio")),
-                "eps": _safe_float(body.get("EPS")),
-                "dividend_yield": _safe_float(body.get("DividendYield")),
-                "week_52_high": _safe_float(body.get("52WeekHigh")),
-                "week_52_low": _safe_float(body.get("52WeekLow")),
-                "beta": _safe_float(body.get("Beta")),
-                "analyst_target": _safe_float(body.get("AnalystTargetPrice")),
-                "exchange": body.get("Exchange", ""),
-                "currency": body.get("Currency", "USD"),
-            }
-            data = _sanitize(data)
-            await cache_set(key, json.dumps(data), ttl=86400)  # 24h cache
-            return data
-        except Exception:
-            return {}
-
-
 async def get_stock_detail(symbol: str) -> dict:
-    """Single endpoint: quote + overview in parallel, max 1 AV call for overview."""
     key = f"detail:{symbol}"
     cached = await cache_get(key)
     if cached:

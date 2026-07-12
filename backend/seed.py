@@ -17,7 +17,11 @@ from app.core.security import hash_password
 from app.models.models import User, Portfolio, Watchlist, PaperTrading
 from app.core.config import settings
 
-engine = create_async_engine(settings.DATABASE_URL)
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,
+    connect_args={"ssl": "require"} if settings.DATABASE_URL.startswith("postgresql") else {},
+)
 Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

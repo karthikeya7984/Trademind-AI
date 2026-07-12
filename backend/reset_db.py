@@ -9,7 +9,11 @@ from app.core.database import Base
 from app.models.models import User, PaperTrading
 from app.core.config import settings
 
-engine = create_async_engine(settings.DATABASE_URL)
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,
+    connect_args={"ssl": "require"} if settings.DATABASE_URL.startswith("postgresql") else {},
+)
 Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

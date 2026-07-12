@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     def get_cors_origins(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
-    # Database
-    DATABASE_URL: str = "sqlite+aiosqlite:///./trademind.db"
+    # Database — always loaded from .env; this default is a fallback only
+    DATABASE_URL: str = "postgresql+asyncpg://trademinddb_user:YOUR_ACTUAL_PASSWORD_HERE@dpg-d99l9v7aqgkc738c3mgg-a.singapore-postgres.render.com/trademinddb"
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # JWT

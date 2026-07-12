@@ -2,14 +2,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.orm import DeclarativeBase
 from app.core.config import settings
 
-# Support both SQLite (dev) and PostgreSQL (prod)
-connect_args = {"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
-
+# PostgreSQL async engine — asyncpg driver
+# Render PostgreSQL requires SSL and has a max of 25 connections on free tier
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,
+    echo=False,
     pool_pre_ping=True,
-    connect_args=connect_args,
+    pool_size=5,
+    max_overflow=10,
+    pool_recycle=1800,
+    pool_timeout=30,
+    connect_args={"ssl": "require"},
 )
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
