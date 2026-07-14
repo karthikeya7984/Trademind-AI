@@ -8,8 +8,8 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
     SECRET_KEY: str = "changeme"
-    CORS_ORIGINS: str = "http://localhost:3000"
-    FRONTEND_URL: str = "http://localhost:3000"
+    CORS_ORIGINS: str = "https://your-project.vercel.app,http://localhost:3000"
+    FRONTEND_URL: str = "https://your-project.vercel.app"
 
     def get_cors_origins(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]

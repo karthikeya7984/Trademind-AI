@@ -17,9 +17,9 @@ services:
       - key: DEBUG
         value: "false"
       - key: CORS_ORIGINS
-        value: "*"
+        value: "https://your-project.vercel.app,http://localhost:3000"
       - key: FRONTEND_URL
-        value: https://your-frontend.vercel.app   # update after frontend deploy
+        value: https://your-project.vercel.app
       # All other secrets (API keys, OAuth, email) — set in Render dashboard
       - key: GOOGLE_CLIENT_ID
         sync: false
