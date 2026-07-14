@@ -7,11 +7,10 @@ Flow:
   1. classify()      — stock-related? if not → reject immediately
   2. detect_intent() — what does the user want?
   3. fetch data      — live market data via market_service / prediction_service
-  4. dispatch        — structured handler OR Gemini for dynamic/education queries
+  4. dispatch        — structured handler OR AI for dynamic/education queries
   5. memory.add()    — store turn for pronoun resolution
 
-Provider order for AI responses:
-  Gemini (primary) → structured fallback (no LLM needed)
+AI provider: xAI (Grok) if XAI_API_KEY is set, else structured fallback.
 """
 
 import asyncio
@@ -63,14 +62,17 @@ async def _run_prediction(symbol: str) -> tuple:
     return result, ind
 
 
-# ── Gemini dynamic response ────────────────────────────────────────────────────
+# ── AI dynamic response ────────────────────────────────────────────────────────
 
 async def _gemini_response(prompt: str, context: str, history: list[dict]) -> str | None:
     """
-    Call NVIDIA NIM first, then Gemini as fallback.
-    Returns None if both are unavailable — caller falls back to structured response.
+    Call xAI (Grok) if XAI_API_KEY is configured.
+    Returns None if unavailable — caller falls back to structured response.
     """
     from app.core.config import settings
+
+    if not settings.XAI_API_KEY:
+        return None
 
     system = (
         "You are TradeMind AI, a professional stock market analyst. "
@@ -88,49 +90,23 @@ async def _gemini_response(prompt: str, context: str, history: list[dict]) -> st
         messages.append({"role": "assistant", "content": h["response"]})
     messages.append({"role": "user", "content": prompt})
 
-    # ── 1. Try NVIDIA NIM (primary) ──────────────────────────────────────────
-    if settings.NVIDIA_API_KEY:
-        try:
-            async with httpx.AsyncClient(timeout=45) as client:
-                resp = await client.post(
-                    "https://integrate.api.nvidia.com/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {settings.NVIDIA_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": settings.NVIDIA_MODEL,
-                        "messages": messages,
-                        "max_tokens": 1024,
-                        "temperature": 0.3,
-                    },
-                )
-            if resp.status_code == 200:
-                text = resp.json()["choices"][0]["message"]["content"]
-                if text:
-                    return text
-        except Exception:
-            pass
-
-    # ── 2. Gemini fallback ────────────────────────────────────────────────────
-    if settings.GEMINI_API_KEY:
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            model = genai.GenerativeModel(
-                model_name=settings.GEMINI_MODEL,
-                system_instruction=system,
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.XAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={"model": settings.XAI_MODEL, "messages": messages,
+                      "max_tokens": 1024, "temperature": 0.3},
             )
-            gemini_history = []
-            for h in history[-4:]:
-                gemini_history.append({"role": "user",  "parts": [h["prompt"]]})
-                gemini_history.append({"role": "model", "parts": [h["response"]]})
-            session  = model.start_chat(history=gemini_history)
-            response = await asyncio.to_thread(session.send_message, prompt)
-            if response.text:
-                return response.text
-        except Exception:
-            pass
+        if r.status_code == 200:
+            text = r.json()["choices"][0]["message"]["content"]
+            if text:
+                return text
+    except Exception:
+        pass
 
     return None
 
@@ -277,7 +253,7 @@ async def _handle_recommendation(intent: Intent) -> str:
 
 
 async def _handle_education(intent: Intent, memory_history: list[dict]) -> str:
-    """Use Gemini for education queries — richer explanations than static templates."""
+    """Use AI for education queries — richer explanations than static templates."""
     gemini = await _gemini_response(intent.raw, "", memory_history)
     if gemini:
         return gemini
@@ -301,7 +277,7 @@ _HANDLERS = {
 # ── Main entry point ───────────────────────────────────────────────────────────
 
 def _build_explain_fallback(last_response: str) -> str:
-    """Structured fallback explanation when Gemini is unavailable."""
+    """Structured fallback explanation when no AI provider is configured."""
     return (
         "## 📖 Explanation of Previous Result\n\n"
         "Here's what each metric means:\n\n"

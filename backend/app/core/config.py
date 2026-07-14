@@ -15,7 +15,7 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     # Database — always loaded from .env; this default is a fallback only
-    DATABASE_URL: str = "postgresql+asyncpg://trademinddb_user:YOUR_ACTUAL_PASSWORD_HERE@dpg-d99l9v7aqgkc738c3mgg-a.singapore-postgres.render.com/trademinddb"
+    DATABASE_URL: str = "postgresql+asyncpg://trademinddb_user:5LbNKHGmlvwF3uQoDhqX34SsqucDFpG1@dpg-d99l9v7aqgkc738c3mgg-a.singapore-postgres.render.com/trademinddb"
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # JWT
@@ -29,22 +29,8 @@ class Settings(BaseSettings):
     ALPACA_API_KEY: str = ""
     ALPACA_SECRET: str = ""
     ALPACA_BASE_URL: str = "https://paper-api.alpaca.markets"
-    GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.0-flash"
-    NVIDIA_API_KEY: str = ""
-    NVIDIA_MODEL: str = "nvidia/llama-3.1-nemotron-ultra-253b-v1"
-    # ANTHROPIC_API_KEY: str = ""
-    # ANTHROPIC_MODEL: str = "claude-3-5-haiku-20241022"
     XAI_API_KEY: str = ""
     XAI_MODEL: str = "grok-3-mini"
-    DEEPSEEK_API_KEY: str = ""
-    DEEPSEEK_MODEL: str = "deepseek-reasoner"
-    GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
-    OPENROUTER_API_KEY: str = ""
-    OPENROUTER_MODEL: str = "mistralai/mistral-7b-instruct"
-    MISTRAL_API_KEY: str = ""
-    MISTRAL_MODEL: str = "mistral-small-latest"
     NEWS_API_KEY: str = ""
 
     # AWS
