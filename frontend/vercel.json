@@ -5,7 +5,8 @@
   "installCommand": "npm ci",
   "devCommand": "npm run dev",
   "env": {
-    "NEXT_PUBLIC_API_URL": "@next_public_api_url",
-    "NEXT_PUBLIC_WS_URL": "@next_public_ws_url"
+    "NEXT_PUBLIC_API_URL": "https://trademind-backend-production-9b76.up.railway.app",
+    "NEXT_PUBLIC_WS_URL": "wss://trademind-backend-production-9b76.up.railway.app",
+    "NEXT_PUBLIC_APP_URL": "https://trademind-ai12.vercel.app"
   }
 }
