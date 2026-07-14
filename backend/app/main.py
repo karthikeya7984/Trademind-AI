@@ -25,7 +25,6 @@ _DASHBOARD_SYMBOLS = [
 
 
 async def _prewarm():
-    import asyncio
     from app.services.market_service import get_bulk_quotes, get_market_indices, get_market_movers
     from app.services.prediction_service import run_signals_batch, run_prediction
     try:
@@ -46,8 +45,11 @@ async def _prewarm():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception:
+        pass
     asyncio.create_task(_prewarm())
     yield
 
