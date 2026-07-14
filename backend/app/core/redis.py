@@ -3,29 +3,29 @@ from typing import Optional
 import time
 
 _store: dict = {}  # {key: (value, expires_at)}
-
-try:
-    import redis.asyncio as aioredis
-    from app.core.config import settings
-    _redis_client = None
-    _redis_available = True
-except ImportError:
-    _redis_available = False
+_redis_client = None
+_redis_checked = False  # only attempt connection once
 
 
 async def _get_redis():
-    global _redis_client
-    if not _redis_available:
-        return None
+    global _redis_client, _redis_checked
+    if _redis_checked:
+        return _redis_client
+    _redis_checked = True
     try:
         from app.core.config import settings
-        if _redis_client is None:
-            import redis.asyncio as aioredis
-            _redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True, socket_connect_timeout=1)
-        await _redis_client.ping()
-        return _redis_client
+        # Skip Redis entirely if using default localhost (not configured)
+        if "localhost" in settings.REDIS_URL or "127.0.0.1" in settings.REDIS_URL:
+            return None
+        import redis.asyncio as aioredis
+        client = aioredis.from_url(
+            settings.REDIS_URL, decode_responses=True, socket_connect_timeout=0.5
+        )
+        await client.ping()
+        _redis_client = client
     except Exception:
-        return None
+        _redis_client = None
+    return _redis_client
 
 
 async def cache_set(key: str, value: str, ttl: int = 300):
