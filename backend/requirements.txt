@@ -30,9 +30,9 @@ pandas==2.2.3
 numpy==2.2.0
 scikit-learn==1.5.2
 tensorflow==2.20.0
-torch==2.4.1
-prophet==1.1.6
-transformers==4.45.1
+torch==2.5.1
+prophet==1.1.6; python_version < '3.13'
+transformers==4.47.0
 scipy==1.14.1
 matplotlib==3.9.2
 prometheus-fastapi-instrumentator==7.0.0
