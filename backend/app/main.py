@@ -50,7 +50,11 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
     except Exception:
         pass
-    asyncio.create_task(_prewarm())
+    # Fire prewarm after a short delay so healthcheck passes first
+    async def _delayed_prewarm():
+        await asyncio.sleep(5)
+        await _prewarm()
+    asyncio.create_task(_delayed_prewarm())
     yield
 
 
