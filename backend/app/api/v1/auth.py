@@ -146,6 +146,10 @@ async def google_auth(
     if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
         raise HTTPException(status_code=501, detail="Google OAuth not configured")
 
+    # redirect_uri must exactly match what was registered in Google Cloud Console
+    # and what the frontend used when initiating the OAuth flow
+    redirect_uri = f"{settings.FRONTEND_URL}/auth/google/callback"
+
     async with httpx.AsyncClient() as client:
         token_resp = await client.post(
             "https://oauth2.googleapis.com/token",
@@ -153,12 +157,16 @@ async def google_auth(
                 "code": body.code,
                 "client_id": settings.GOOGLE_CLIENT_ID,
                 "client_secret": settings.GOOGLE_CLIENT_SECRET,
-                "redirect_uri": f"{settings.FRONTEND_URL}/auth/google/callback",
+                "redirect_uri": redirect_uri,
                 "grant_type": "authorization_code",
             },
         )
         if token_resp.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to exchange Google code")
+            error_detail = token_resp.json().get("error_description") or token_resp.json().get("error") or "Unknown error"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to exchange Google code: {error_detail} (redirect_uri used: {redirect_uri})"
+            )
 
         google_tokens = token_resp.json()
         userinfo_resp = await client.get(
