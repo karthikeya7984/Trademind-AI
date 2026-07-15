@@ -58,6 +58,11 @@ async def market_ws(websocket: WebSocket, symbol: str):
     await stock_ws_handler(websocket, symbol)
 
 
+@app.get("/")
+async def root():
+    return {"status": "ok", "service": "TradeMind AI"}
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "TradeMind AI"}
