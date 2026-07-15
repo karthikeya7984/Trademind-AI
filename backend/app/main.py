@@ -1,4 +1,3 @@
-import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -15,34 +14,6 @@ import structlog
 structlog.configure(processors=[structlog.dev.ConsoleRenderer()])
 
 
-_DASHBOARD_SYMBOLS = [
-    "AAPL","MSFT","NVDA","GOOGL","META","AMD","INTC","ORCL","CRM","ADBE",
-    "QCOM","TXN","PLTR","SNOW","NET","SHOP","AMZN","TSLA","NFLX","BABA",
-    "UBER","ABNB","NKE","SBUX","MCD","WMT","JPM","BAC","GS","MS",
-    "BRK-B","V","MA","PYPL","COIN","HOOD","JNJ","PFE","MRNA","UNH",
-    "ABBV","LLY","XOM","CVX","COP","SLB","SPY","QQQ","DIA","IWM",
-]
-
-
-async def _prewarm():
-    from app.services.market_service import get_bulk_quotes, get_market_indices, get_market_movers
-    from app.services.prediction_service import run_signals_batch, run_prediction
-    try:
-        # Stage 1: quotes + indices + movers all at once
-        await asyncio.gather(
-            get_bulk_quotes(_DASHBOARD_SYMBOLS),
-            get_market_indices(),
-            get_market_movers(),
-            return_exceptions=True,
-        )
-        # Stage 2: signals for all 50 + top 10 full predictions — background tasks
-        asyncio.create_task(run_signals_batch(_DASHBOARD_SYMBOLS))
-        _top = ["AAPL", "MSFT", "NVDA", "TSLA", "GOOGL", "META", "AMZN", "AMD", "SPY", "QQQ"]
-        await asyncio.gather(*[run_prediction(s) for s in _top], return_exceptions=True)
-    except Exception:
-        pass
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -50,11 +21,6 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
     except Exception:
         pass
-    # Fire prewarm after a short delay so healthcheck passes first
-    async def _delayed_prewarm():
-        await asyncio.sleep(5)
-        await _prewarm()
-    asyncio.create_task(_delayed_prewarm())
     yield
 
 
