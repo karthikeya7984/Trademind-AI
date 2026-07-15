@@ -1,9 +1,9 @@
 {
   "framework": "nextjs",
+  "rootDirectory": "frontend",
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
   "installCommand": "npm ci",
-  "devCommand": "npm run dev",
   "env": {
     "NEXT_PUBLIC_API_URL": "https://trademind-ai-10ls.onrender.com",
     "NEXT_PUBLIC_WS_URL": "wss://trademind-ai-10ls.onrender.com",
