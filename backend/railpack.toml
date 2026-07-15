@@ -1,0 +1,5 @@
+[deploy]
+startCommand = "python run.py"
+
+[build]
+buildCommand = "pip3 install -r requirements.txt"
