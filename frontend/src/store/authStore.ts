@@ -17,15 +17,10 @@ interface User {
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
-  pendingOtpEmail: string | null;
-  login: (email: string, password: string) => Promise<{ otp_required: boolean; email: string } | void>;
+  login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
-  loginWithGoogle: (code: string) => Promise<{ otp_required: boolean; email: string }>;
-  verifyOtp: (email: string, otp: string) => Promise<void>;
-  resendOtp: (email: string) => Promise<void>;
   logout: () => void;
   fetchMe: () => Promise<void>;
-  setPendingOtpEmail: (email: string | null) => void;
 }
 
 const saveTokens = (access_token: string, refresh_token: string) => {
@@ -38,58 +33,25 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       isAuthenticated: false,
-      pendingOtpEmail: null,
 
       login: async (email, password) => {
         const { data } = await api.post("/auth/login", { email, password });
-        // Daily OTP required — backend returns otp_required instead of tokens
-        if (data.otp_required) {
-          set({ pendingOtpEmail: data.email });
-          return { otp_required: true, email: data.email };
-        }
         saveTokens(data.access_token, data.refresh_token);
         const me = await api.get("/users/me");
-        set({ user: me.data, isAuthenticated: true, pendingOtpEmail: null });
+        set({ user: me.data, isAuthenticated: true });
       },
 
       register: async (name, email, password) => {
         const { data } = await api.post("/auth/register", { name, email, password });
         saveTokens(data.access_token, data.refresh_token);
         const me = await api.get("/users/me");
-        set({ user: me.data, isAuthenticated: true, pendingOtpEmail: null });
+        set({ user: me.data, isAuthenticated: true });
       },
-
-      loginWithGoogle: async (code: string) => {
-        const { data } = await api.post("/auth/google", { code });
-        // Backend now returns { otp_required: true, email }
-        if (data.otp_required) {
-          set({ pendingOtpEmail: data.email });
-          return { otp_required: true, email: data.email };
-        }
-        // Fallback: direct token (shouldn't happen but handled)
-        saveTokens(data.access_token, data.refresh_token);
-        const me = await api.get("/users/me");
-        set({ user: me.data, isAuthenticated: true, pendingOtpEmail: null });
-        return { otp_required: false, email: "" };
-      },
-
-      verifyOtp: async (email: string, otp: string) => {
-        const { data } = await api.post("/auth/verify-otp", { email, otp });
-        saveTokens(data.access_token, data.refresh_token);
-        const me = await api.get("/users/me");
-        set({ user: me.data, isAuthenticated: true, pendingOtpEmail: null });
-      },
-
-      resendOtp: async (email: string) => {
-        await api.post("/auth/resend-otp", { email });
-      },
-
-      setPendingOtpEmail: (email) => set({ pendingOtpEmail: email }),
 
       logout: () => {
         localStorage.removeItem("access_token");
         localStorage.removeItem("refresh_token");
-        set({ user: null, isAuthenticated: false, pendingOtpEmail: null });
+        set({ user: null, isAuthenticated: false });
         window.location.href = "/";
       },
 
@@ -104,7 +66,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "auth-store",
-      partialize: (s) => ({ user: s.user, isAuthenticated: s.isAuthenticated, pendingOtpEmail: s.pendingOtpEmail }),
+      partialize: (s) => ({ user: s.user, isAuthenticated: s.isAuthenticated }),
     }
   )
 );

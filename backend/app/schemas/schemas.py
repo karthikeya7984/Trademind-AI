@@ -33,10 +33,6 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
-class GoogleAuthRequest(BaseModel):
-    code: str  # OAuth authorization code from frontend
-
-
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
@@ -55,30 +51,6 @@ class ResetPasswordRequest(BaseModel):
 
 class VerifyEmailRequest(BaseModel):
     token: str
-
-
-class OTPRequest(BaseModel):
-    email: EmailStr
-
-
-class OTPVerifyRequest(BaseModel):
-    email: EmailStr
-    otp: str
-
-
-class SMSOTPRequest(BaseModel):
-    phone: str
-
-
-class SMSOTPVerifyRequest(BaseModel):
-    phone: str
-    otp: str
-
-
-class OTPRequiredResponse(BaseModel):
-    otp_required: bool = True
-    email: str
-    message: str
 
 
 class MessageResponse(BaseModel):
