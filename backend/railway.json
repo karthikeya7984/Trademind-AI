@@ -6,6 +6,7 @@
   },
   "deploy": {
     "startCommand": "python run.py",
-    "healthcheckPath": "/health"
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30
   }
 }
