@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 
 interface User {
   name: string;
+  account_type?: string;
 }
 
 interface AuthState {
