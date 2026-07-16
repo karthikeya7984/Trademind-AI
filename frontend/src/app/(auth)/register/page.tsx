@@ -1,19 +1,12 @@
 "use client";
-import { useState } from "react";
-import { motion } from "framer-motion";
-import Link from "next/link";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useAuthStore } from "@/store/authStore";
-import { TrendingUp, Eye, EyeOff, Loader2, Mail } from "lucide-react";
-import toast from "react-hot-toast";
 
 export default function RegisterPage() {
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
-  const [showPass, setShowPass] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [registered, setRegistered] = useState(false);
-  const { register } = useAuthStore();
   const router = useRouter();
+  useEffect(() => { router.replace("/"); }, []);
+  return null;
+}
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

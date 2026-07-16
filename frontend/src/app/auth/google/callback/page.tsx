@@ -4,6 +4,6 @@ import { useRouter } from "next/navigation";
 
 export default function GoogleCallbackPage() {
   const router = useRouter();
-  useEffect(() => { router.replace("/login"); }, []);
+  useEffect(() => { router.replace("/"); }, []);
   return null;
 }
