@@ -2,8 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import Link from "next/link";
-import { TrendingUp, Brain, Shield, BarChart3, Zap, Globe } from "lucide-react";
+import { TrendingUp, Brain, Shield, BarChart3, Zap, Globe, ArrowRight, Loader2 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 
 const features = [
@@ -16,9 +15,11 @@ const features = [
 ];
 
 export default function HomePage() {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, loginWithName } = useAuthStore();
   const router = useRouter();
   const [checked, setChecked] = useState(false);
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -27,6 +28,14 @@ export default function HomePage() {
       setChecked(true);
     }
   }, [isAuthenticated]);
+
+  const handleEnter = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setLoading(true);
+    loginWithName(name.trim());
+    router.push("/dashboard");
+  };
 
   if (!checked) {
     return (
@@ -45,16 +54,12 @@ export default function HomePage() {
       </div>
 
       {/* Nav */}
-      <nav className="relative z-10 flex items-center justify-between px-6 py-4 max-w-7xl mx-auto w-full">
+      <nav className="relative z-10 flex items-center px-6 py-4 max-w-7xl mx-auto w-full">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-neon-green to-neon-blue flex items-center justify-center">
             <TrendingUp className="w-5 h-5 text-black" />
           </div>
           <span className="font-bold text-xl gradient-text">TradeMind AI</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <Link href="/login" className="text-muted-foreground hover:text-foreground transition-colors text-sm">Sign In</Link>
-          <Link href="/register" className="btn-primary text-sm">Get Started Free</Link>
         </div>
       </nav>
 
@@ -77,12 +82,6 @@ export default function HomePage() {
           <p className="text-base text-muted-foreground max-w-xl mx-auto mb-4">
             Institutional-grade AI predictions, portfolio optimization, and risk management — built for retail investors.
           </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link href="/register" className="btn-primary text-sm px-6 py-2.5">Start Trading Free</Link>
-            <Link href="/dashboard" className="glass px-6 py-2.5 rounded-lg text-sm font-medium hover:border-neon-green/30 transition-all">
-              View Dashboard
-            </Link>
-          </div>
         </motion.div>
 
         {/* Stats */}
@@ -121,14 +120,27 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* CTA */}
+        {/* Sign in box */}
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}
-          className="glass neon-border rounded-xl px-6 py-4 text-center"
+          className="glass neon-border rounded-xl px-6 py-4"
         >
-          <h2 className="text-lg font-bold mb-1">Ready to Trade Smarter?</h2>
-          <p className="text-muted-foreground text-sm mb-3">Join thousands of investors using AI to make better decisions.</p>
-          <Link href="/register" className="btn-primary text-sm px-8 py-2.5">Create Free Account</Link>
+          <h2 className="text-lg font-bold mb-1 text-center">Sign into account</h2>
+          <p className="text-muted-foreground text-sm mb-4 text-center">Enter your name to get started instantly.</p>
+          <form onSubmit={handleEnter} className="flex gap-3 max-w-md mx-auto">
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name"
+              required
+              className="flex-1 bg-muted border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-neon-green/50 transition-all"
+            />
+            <button type="submit" disabled={loading || !name.trim()} className="btn-primary flex items-center gap-2 px-5">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+              Go
+            </button>
+          </form>
         </motion.div>
 
       </div>

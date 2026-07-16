@@ -76,10 +76,6 @@ export default function TopBar() {
               {/* User info */}
               <div className="px-4 py-3 border-b border-border/50">
                 <p className="text-sm font-semibold truncate">{user?.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
-                <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-xs bg-neon-green/10 text-neon-green capitalize">
-                  {user?.account_type || "free"}
-                </span>
               </div>
 
               {/* Menu items */}
