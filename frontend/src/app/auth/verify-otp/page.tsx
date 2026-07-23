@@ -1,12 +1,12 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { TrendingUp, Loader2, Mail, ArrowLeft } from "lucide-react";
 import api from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 
-export default function VerifyOTPPage() {
+function VerifyOTPInner() {
   const router = useRouter();
   const params = useSearchParams();
   const email = params.get("email") ?? "";
@@ -134,5 +134,17 @@ export default function VerifyOTPPage() {
         </p>
       </motion.div>
     </main>
+  );
+}
+
+export default function VerifyOTPPage() {
+  return (
+    <Suspense fallback={
+      <div className="h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-neon-green animate-spin" />
+      </div>
+    }>
+      <VerifyOTPInner />
+    </Suspense>
   );
 }
