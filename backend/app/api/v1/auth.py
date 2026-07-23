@@ -1,17 +1,21 @@
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
+from app.core.config import settings
 from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
-from app.models.models import User, PaperTrading, EmailToken
+from app.models.models import User, PaperTrading, EmailToken, OTPToken
 from app.schemas.schemas import (
     RegisterRequest, LoginRequest, TokenResponse, RefreshRequest,
     ForgotPasswordRequest, ResetPasswordRequest,
-    VerifyEmailRequest, MessageResponse,
+    VerifyEmailRequest, MessageResponse, OTPVerifyRequest,
 )
-from app.services.email_service import send_verification_email, send_password_reset_email
+from app.services.email_service import send_verification_email, send_password_reset_email, send_otp_email
 import secrets
+import random
+import httpx
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -167,6 +171,126 @@ async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(
     token_obj.used = True
     await db.commit()
     return MessageResponse(message="Password reset successfully")
+
+
+# ─── Google OAuth ─────────────────────────────────────────────────────────────
+
+@router.get("/google")
+async def google_login():
+    """Redirect user to Google OAuth consent screen."""
+    redirect_uri = "http://localhost:8000/api/v1/auth/google/callback"
+    params = (
+        f"client_id={settings.GOOGLE_CLIENT_ID}"
+        f"&redirect_uri={redirect_uri}"
+        "&response_type=code"
+        "&scope=openid%20email%20profile"
+        "&access_type=offline"
+        "&prompt=select_account"
+    )
+    return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
+
+
+@router.get("/google/callback")
+async def google_callback(
+    code: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """Exchange Google code for user info, send OTP, redirect to OTP page."""
+    # Exchange code for tokens
+    async with httpx.AsyncClient() as client:
+        token_resp = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": settings.GOOGLE_CLIENT_ID,
+                "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                "redirect_uri": "http://localhost:8000/api/v1/auth/google/callback",
+                "grant_type": "authorization_code",
+            },
+        )
+        if token_resp.status_code != 200:
+            return RedirectResponse(f"{settings.FRONTEND_URL}/login?error=google_failed")
+
+        id_token = token_resp.json().get("id_token")
+        userinfo_resp = await client.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {token_resp.json()['access_token']}"},
+        )
+
+    userinfo = userinfo_resp.json()
+    email = userinfo.get("email")
+    name = userinfo.get("name", email)
+    google_id = userinfo.get("sub")
+    picture = userinfo.get("picture")
+
+    if not email:
+        return RedirectResponse(f"{settings.FRONTEND_URL}/login?error=no_email")
+
+    # Upsert user
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    if not user:
+        user = User(
+            name=name, email=email, google_id=google_id,
+            profile_image=picture, auth_provider="google", is_verified=True,
+        )
+        db.add(user)
+        await db.flush()
+        db.add(PaperTrading(user_id=user.id))
+    else:
+        if not user.google_id:
+            user.google_id = google_id
+        if picture and not user.profile_image:
+            user.profile_image = picture
+        user.auth_provider = "google"
+
+    if user.is_suspended:
+        await db.commit()
+        return RedirectResponse(f"{settings.FRONTEND_URL}/login?error=suspended")
+
+    # Generate 6-digit OTP
+    otp = str(random.randint(100000, 999999))
+    db.add(OTPToken(
+        email=email,
+        otp=otp,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    ))
+    await db.commit()
+
+    background_tasks.add_task(send_otp_email, email, name, otp)
+    return RedirectResponse(f"{settings.FRONTEND_URL}/auth/verify-otp?email={email}")
+
+
+@router.post("/google/verify-otp", response_model=TokenResponse)
+async def google_verify_otp(body: OTPVerifyRequest, db: AsyncSession = Depends(get_db)):
+    """Verify OTP and return JWT tokens."""
+    result = await db.execute(
+        select(OTPToken).where(
+            OTPToken.email == body.email,
+            OTPToken.otp == body.otp,
+            OTPToken.used == False,
+        )
+    )
+    otp_obj = result.scalar_one_or_none()
+    if not otp_obj or otp_obj.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+
+    result = await db.execute(select(User).where(User.email == body.email))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    otp_obj.used = True
+    user.last_login_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(user)
+
+    return TokenResponse(
+        access_token=create_access_token(user.id),
+        refresh_token=create_refresh_token(user.id),
+        user=_user_dict(user),
+    )
 
 
 @router.post("/refresh", response_model=TokenResponse)

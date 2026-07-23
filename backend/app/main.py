@@ -16,11 +16,34 @@ structlog.configure(processors=[structlog.dev.ConsoleRenderer()])
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Create DB tables
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     except Exception:
         pass
+
+    # Pre-warm cache in background so dashboard loads fast on first visit
+    import asyncio
+    async def _prewarm():
+        try:
+            from app.services.market_service import get_market_indices, get_market_movers, get_bulk_quotes
+            from app.services.prediction_service import run_signals_batch
+            TOP_SYMBOLS = [
+                "AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN", "TSLA",
+                "AMD", "NFLX", "JPM", "V", "SPY", "QQQ",
+            ]
+            await asyncio.gather(
+                get_market_indices(),
+                get_market_movers(),
+                get_bulk_quotes(TOP_SYMBOLS),
+                return_exceptions=True,
+            )
+            # Signals pre-warm in background (slower, don't block startup)
+            asyncio.create_task(run_signals_batch(TOP_SYMBOLS))
+        except Exception:
+            pass
+    asyncio.create_task(_prewarm())
     yield
 
 

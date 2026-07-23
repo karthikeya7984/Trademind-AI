@@ -58,6 +58,18 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
 
+    # OpenAI
+    OPENAI_API_KEY: str = ""
+
+    # Groq (free, fast — Llama 3 / Mixtral)
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+
+    # Hugging Face Inference API
+    HF_API_KEY: str = ""
+    HF_MODEL: str = "mistralai/Mistral-7B-Instruct-v0.3"
+    HF_MODEL_REPO: str = ""  # e.g. your-username/trademind-lstm
+
     # Admin bootstrap (hashed password only — never plain text)
     ADMIN_EMAIL: str = "ch.karthikeya868769@gmail.com"
     ADMIN_PASSWORD_HASH: str = ""  # Set via env: bcrypt hash of admin password

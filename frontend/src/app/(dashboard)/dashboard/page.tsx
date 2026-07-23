@@ -77,16 +77,16 @@ export default function DashboardPage() {
   const { data: indices, isLoading: indicesLoading } = useQuery({
     queryKey: ["indices"],
     queryFn: () => api.get("/market/indices").then((r) => r.data),
-    refetchInterval: 120_000,
-    staleTime: 90_000,
+    refetchInterval: 60_000,
+    staleTime: 55_000,
     refetchOnWindowFocus: false,
   });
 
   const { data: movers, isLoading: moversLoading } = useQuery({
     queryKey: ["movers"],
     queryFn: () => api.get("/market/movers").then((r) => r.data),
-    refetchInterval: 120_000,
-    staleTime: 90_000,
+    refetchInterval: 60_000,
+    staleTime: 55_000,
     refetchOnWindowFocus: false,
   });
 
@@ -95,22 +95,22 @@ export default function DashboardPage() {
     queryFn: () =>
       api.get(`/market/quotes/batch?symbols=${allSymbols}`).then((r) => r.data ?? {}),
     refetchInterval: 120_000,
-    staleTime: 90_000,
+    staleTime: 110_000,
     placeholderData: (prev) => prev,
     refetchOnWindowFocus: false,
-    retry: 3,
-    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10_000),
+    retry: 2,
+    retryDelay: 3000,
   });
 
   // Signals load lazily — table shows immediately with quotes, signals fill in
   const { data: signals, isLoading: signalsLoading } = useQuery({
     queryKey: ["all-signals"],
     queryFn: () => api.get(`/predictions/signals?symbols=${allSymbols}`).then((r) => r.data ?? {}),
-    refetchInterval: 1_800_000,
-    staleTime: 1_800_000,
+    refetchInterval: 3_600_000,
+    staleTime: 3_600_000,
     placeholderData: (prev) => prev,
     refetchOnWindowFocus: false,
-    retry: 2,
+    retry: 1,
   });
 
   const indexList = indices

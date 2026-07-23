@@ -1,0 +1,26 @@
+{
+  "model_type": "LSTM",
+  "framework": "TensorFlow/Keras",
+  "sequence_length": 60,
+  "forecast_days": 5,
+  "features": [
+    "close",
+    "returns",
+    "ma5",
+    "ma20",
+    "volatility",
+    "rsi",
+    "macd"
+  ],
+  "trained_symbols": [
+    "AAPL",
+    "TSLA",
+    "NVDA",
+    "MSFT",
+    "AMZN",
+    "GOOGL",
+    "JPM",
+    "NFLX"
+  ],
+  "task": "stock-price-forecasting"
+}

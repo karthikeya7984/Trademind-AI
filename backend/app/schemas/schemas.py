@@ -53,6 +53,11 @@ class VerifyEmailRequest(BaseModel):
     token: str
 
 
+class OTPVerifyRequest(BaseModel):
+    email: EmailStr
+    otp: str
+
+
 class MessageResponse(BaseModel):
     message: str
 

@@ -4,6 +4,7 @@ import pandas as pd
 import json
 from app.services.market_service import get_historical_data
 from app.services.news_service import get_symbol_sentiment
+from app.services.lstm_service import lstm_predict
 from app.core.redis import cache_get, cache_set
 
 
@@ -78,20 +79,29 @@ def score_signals(df: pd.DataFrame, news_sentiment: float = 0.0) -> dict:
 
     signals = {}
 
+    # RSI — oversold/overbought with momentum confirmation
     rsi = g("rsi", 50)
+    prev_rsi = gp("rsi", 50)
     if   rsi < 30: signals["rsi"] =  1.0
     elif rsi < 40: signals["rsi"] =  0.5
     elif rsi > 70: signals["rsi"] = -1.0
     elif rsi > 60: signals["rsi"] = -0.5
     else:          signals["rsi"] =  0.0
+    # RSI momentum bonus: rising from oversold or falling from overbought
+    if rsi < 40 and rsi > prev_rsi:  signals["rsi"] = min(signals["rsi"] + 0.2, 1.0)
+    if rsi > 60 and rsi < prev_rsi:  signals["rsi"] = max(signals["rsi"] - 0.2, -1.0)
 
+    # MACD — crossover detection with histogram confirmation
     macd, macd_sig, macd_hist, prev_hist = g("macd"), g("macd_signal"), g("macd_hist"), gp("macd_hist")
     if   macd > macd_sig and prev_hist <= 0 and macd_hist > 0: signals["macd"] =  1.0
     elif macd < macd_sig and prev_hist >= 0 and macd_hist < 0: signals["macd"] = -1.0
-    elif macd > macd_sig:                                       signals["macd"] =  0.4
-    elif macd < macd_sig:                                       signals["macd"] = -0.4
-    else:                                                       signals["macd"] =  0.0
+    elif macd > macd_sig and macd_hist > gp("macd_hist"):       signals["macd"] =  0.6
+    elif macd < macd_sig and macd_hist < gp("macd_hist"):       signals["macd"] = -0.6
+    elif macd > macd_sig:                                        signals["macd"] =  0.3
+    elif macd < macd_sig:                                        signals["macd"] = -0.3
+    else:                                                        signals["macd"] =  0.0
 
+    # Bollinger Bands
     bb_pct = g("bb_pct", 0.5)
     if   bb_pct < 0.10: signals["bollinger"] =  1.0
     elif bb_pct < 0.25: signals["bollinger"] =  0.5
@@ -99,37 +109,62 @@ def score_signals(df: pd.DataFrame, news_sentiment: float = 0.0) -> dict:
     elif bb_pct > 0.75: signals["bollinger"] = -0.5
     else:               signals["bollinger"] =  0.0
 
+    # Moving Average cross + trend
     ma10, ma20, ma50, ma200 = g("ma10", close), g("ma20", close), g("ma50", close), g("ma200", close)
     prev_ma10, prev_ma20    = gp("ma10", ma10), gp("ma20", ma20)
     if   ma10 > ma20 and prev_ma10 <= prev_ma20: signals["ma_cross"] =  1.0
     elif ma10 < ma20 and prev_ma10 >= prev_ma20: signals["ma_cross"] = -1.0
-    elif close > ma50 and close > ma200:         signals["ma_cross"] =  0.5
-    elif close < ma50 and close < ma200:         signals["ma_cross"] = -0.5
-    elif close > ma50:                           signals["ma_cross"] =  0.3
-    elif close < ma50:                           signals["ma_cross"] = -0.3
-    else:                                        signals["ma_cross"] =  0.0
+    elif close > ma50 and close > ma200:          signals["ma_cross"] =  0.6
+    elif close < ma50 and close < ma200:          signals["ma_cross"] = -0.6
+    elif close > ma50:                            signals["ma_cross"] =  0.3
+    elif close < ma50:                            signals["ma_cross"] = -0.3
+    else:                                         signals["ma_cross"] =  0.0
 
+    # Volume confirmation
     vol_ratio    = g("vol_ratio", 1.0)
     price_change = close - float(prev["close"]) if float(prev["close"]) else 0
-    if   vol_ratio > 1.5 and price_change > 0: signals["volume"] =  0.8
-    elif vol_ratio > 1.5 and price_change < 0: signals["volume"] = -0.8
+    if   vol_ratio > 2.0 and price_change > 0: signals["volume"] =  1.0
+    elif vol_ratio > 1.5 and price_change > 0: signals["volume"] =  0.7
+    elif vol_ratio > 2.0 and price_change < 0: signals["volume"] = -1.0
+    elif vol_ratio > 1.5 and price_change < 0: signals["volume"] = -0.7
     elif vol_ratio < 0.5:                      signals["volume"] =  0.0
     else:                                      signals["volume"] =  0.1 if price_change > 0 else -0.1
 
+    # Stochastic
     stoch_k, stoch_d = g("stoch_k", 50), g("stoch_d", 50)
-    if   stoch_k < 20 and stoch_d < 20:      signals["stochastic"] =  1.0
-    elif stoch_k > 80 and stoch_d > 80:      signals["stochastic"] = -1.0
-    elif stoch_k > stoch_d and stoch_k < 50: signals["stochastic"] =  0.4
-    elif stoch_k < stoch_d and stoch_k > 50: signals["stochastic"] = -0.4
-    else:                                    signals["stochastic"] =  0.0
+    prev_stoch_k     = gp("stoch_k", 50)
+    if   stoch_k < 20 and stoch_d < 20 and stoch_k > prev_stoch_k: signals["stochastic"] =  1.0
+    elif stoch_k < 20 and stoch_d < 20:                             signals["stochastic"] =  0.7
+    elif stoch_k > 80 and stoch_d > 80 and stoch_k < prev_stoch_k: signals["stochastic"] = -1.0
+    elif stoch_k > 80 and stoch_d > 80:                             signals["stochastic"] = -0.7
+    elif stoch_k > stoch_d and stoch_k < 50:                        signals["stochastic"] =  0.4
+    elif stoch_k < stoch_d and stoch_k > 50:                        signals["stochastic"] = -0.4
+    else:                                                            signals["stochastic"] =  0.0
 
+    # ROC momentum
+    roc10 = g("roc10", 0.0)
+    if   roc10 >  5: signals["momentum"] =  0.6
+    elif roc10 >  2: signals["momentum"] =  0.3
+    elif roc10 < -5: signals["momentum"] = -0.6
+    elif roc10 < -2: signals["momentum"] = -0.3
+    else:            signals["momentum"] =  0.0
+
+    # News sentiment (small weight — avoid over-relying on it)
     signals["news"] = max(-1.0, min(1.0, news_sentiment * 2))
 
+    # Trend bias: price above/below both MA50 & MA200
+    trend_bias = 0.0
+    if close > ma50 and close > ma200:
+        trend_bias = 0.06
+    elif close < ma50 and close < ma200:
+        trend_bias = -0.06
+
     weights = {
-        "rsi": 0.20, "macd": 0.22, "bollinger": 0.15,
-        "ma_cross": 0.22, "volume": 0.10, "stochastic": 0.08, "news": 0.03,
+        "rsi": 0.18, "macd": 0.24, "bollinger": 0.12,
+        "ma_cross": 0.22, "volume": 0.10, "stochastic": 0.08,
+        "momentum": 0.05, "news": 0.01,
     }
-    composite = sum(signals[k] * weights[k] for k in signals)
+    composite = sum(signals[k] * weights[k] for k in signals) + trend_bias
     return {"signals": signals, "composite": round(composite, 4)}
 
 
@@ -167,10 +202,10 @@ def build_advice(symbol: str, score_data: dict, indicators: dict,
     rsi       = indicators.get("rsi") or 50.0
     news_lbl  = news_sentiment.get("label", "neutral")
 
-    if composite > 0.25:
-        action, urgency = "INVEST", ("HIGH" if composite > 0.55 else "MEDIUM")
-    elif composite < -0.25:
-        action, urgency = "WITHDRAW", ("HIGH" if composite < -0.55 else "MEDIUM")
+    if composite > 0.20:
+        action, urgency = "INVEST", ("HIGH" if composite > 0.50 else "MEDIUM")
+    elif composite < -0.20:
+        action, urgency = "WITHDRAW", ("HIGH" if composite < -0.50 else "MEDIUM")
     else:
         action, urgency = "HOLD", "LOW"
 
@@ -198,11 +233,16 @@ def build_advice(symbol: str, score_data: dict, indicators: dict,
     elif sigs.get("ma_cross", 0) < 0:
         reasons.append("Price below key moving averages — downtrend in effect")
 
+    if sigs.get("momentum", 0) > 0.3:
+        reasons.append(f"Strong positive momentum ROC: {indicators.get('roc10', 0):.1f}%")
+    elif sigs.get("momentum", 0) < -0.3:
+        reasons.append(f"Negative momentum ROC: {indicators.get('roc10', 0):.1f}%")
+
     if not reasons:
         reasons.append(f"Mixed signals, composite score: {composite:+.3f}")
 
     reason = ". ".join(reasons[:3]) + f". Score: {composite:+.3f}."
-    risk   = "HIGH" if abs(composite) > 0.55 else "MEDIUM" if abs(composite) > 0.25 else "LOW"
+    risk   = "HIGH" if abs(composite) > 0.50 else "MEDIUM" if abs(composite) > 0.20 else "LOW"
 
     return {
         "action": action, "urgency": urgency, "reason": reason,
@@ -234,7 +274,6 @@ async def _safe_news(symbol: str) -> dict:
 async def run_prediction(symbol: str, fast: bool = False) -> dict:
     """fast=True: skips news, uses 6mo history — much faster, used for batch signals."""
     symbol    = symbol.upper().strip()
-    # Normalize dot to dash for yfinance (e.g. BRK.B -> BRK-B)
     yf_symbol = symbol.replace(".", "-")
     cache_key = f"pred:{'f' if fast else 'v'}:{symbol}"
     cached    = await cache_get(cache_key)
@@ -248,7 +287,6 @@ async def run_prediction(symbol: str, fast: bool = False) -> dict:
         history        = await get_historical_data(yf_symbol, period="6mo", interval="1d")
         news_sentiment = {"symbol": symbol, "score": 0.0, "label": "neutral", "article_count": 0}
     else:
-        # Run history + news concurrently with a 5s news timeout
         async def _news_with_timeout(sym: str) -> dict:
             try:
                 return await asyncio.wait_for(_safe_news(sym), timeout=5.0)
@@ -256,7 +294,7 @@ async def run_prediction(symbol: str, fast: bool = False) -> dict:
                 return {"symbol": sym, "score": 0.0, "label": "neutral", "article_count": 0}
 
         history, news_sentiment = await asyncio.gather(
-            get_historical_data(yf_symbol, period="6mo", interval="1d"),
+            get_historical_data(yf_symbol, period="1y", interval="1d"),
             _news_with_timeout(symbol),
         )
 
@@ -282,11 +320,13 @@ async def run_prediction(symbol: str, fast: bool = False) -> dict:
     score_data = score_signals(df, news_score)
     composite  = score_data["composite"]
 
-    if   composite >  0.15: signal = "BUY"
-    elif composite < -0.15: signal = "SELL"
+    # Stronger conviction threshold reduces false signals
+    if   composite >  0.20: signal = "BUY"
+    elif composite < -0.20: signal = "SELL"
     else:                   signal = "HOLD"
 
-    confidence    = round(0.50 + min(abs(composite) / 0.8, 1.0) * 0.45, 3)
+    # Confidence: 50% base + up to 45% from signal strength, capped at 95%
+    confidence    = round(min(0.50 + min(abs(composite) / 0.7, 1.0) * 0.45, 0.95), 3)
     price_targets = calculate_price_target(df, signal)
 
     prices_20   = df["close"].tail(20).values.astype(float)
@@ -310,13 +350,29 @@ async def run_prediction(symbol: str, fast: bool = False) -> dict:
 
     advice = build_advice(symbol, score_data, indicators, price_targets, current_price, news_sentiment)
 
+    # LSTM blend (if model available for this symbol)
+    lstm_result = lstm_predict(symbol, df)
+    if lstm_result:
+        lstm_signal = lstm_result["signal"]
+        lstm_conf   = lstm_result["confidence_score"]
+        if lstm_signal == signal:
+            confidence      = round(confidence * 0.4 + lstm_conf * 0.6, 3)
+            predicted_price = lstm_result["predicted_price"]
+        else:
+            confidence      = round(confidence * 0.7, 3)
+            predicted_price = price_targets["target"]
+        lstm_data = lstm_result
+    else:
+        predicted_price = price_targets["target"]
+        lstm_data       = None
+
     result = {
         "symbol":           symbol,
         "signal":           signal,
         "composite_score":  composite,
         "confidence_score": confidence,
         "current_price":    current_price,
-        "predicted_price":  price_targets["target"],
+        "predicted_price":  predicted_price,
         "entry_price":      price_targets["entry"],
         "stop_loss":        price_targets["stop_loss"],
         "trend":            trend,
@@ -324,16 +380,17 @@ async def run_prediction(symbol: str, fast: bool = False) -> dict:
         "signal_breakdown": score_data["signals"],
         "news_sentiment":   news_sentiment,
         "advice":           advice,
+        "lstm":             lstm_data,
     }
 
-    await cache_set(cache_key, json.dumps(result), ttl=1800)
+    await cache_set(cache_key, json.dumps(result), ttl=3600)  # 1hr cache
     return result
 
 
 # ── Batch Signals (for dashboard table) ──────────────────────────────────────
 
 async def run_signals_batch(symbols: list[str]) -> dict:
-    """All 50 symbols concurrently, fast mode, 30-min cache."""
+    """All symbols concurrently in fast mode, 1hr cache."""
     cache_key = f"sig_batch:{','.join(sorted(symbols))}"
     cached    = await cache_get(cache_key)
     if cached:
@@ -353,11 +410,12 @@ async def run_signals_batch(symbols: list[str]) -> dict:
         except Exception:
             return sym, {"signal": "HOLD", "confidence": 0.5, "composite": 0.0}
 
-    # Process in chunks of 10 to avoid overwhelming yfinance
-    CHUNK = 10
+    # Process in chunks of 15 concurrently
+    CHUNK = 15
     result = {}
     for i in range(0, len(symbols), CHUNK):
         chunk_pairs = await asyncio.gather(*[_one(s) for s in symbols[i:i+CHUNK]])
         result.update(dict(chunk_pairs))
-    await cache_set(cache_key, json.dumps(result), ttl=1800)
+
+    await cache_set(cache_key, json.dumps(result), ttl=3600)  # 1hr cache
     return result

@@ -14,17 +14,14 @@ async def _get_redis():
     _redis_checked = True
     try:
         from app.core.config import settings
-        # Skip Redis entirely if using default localhost (not configured)
-        if "localhost" in settings.REDIS_URL or "127.0.0.1" in settings.REDIS_URL:
-            return None
         import redis.asyncio as aioredis
         client = aioredis.from_url(
-            settings.REDIS_URL, decode_responses=True, socket_connect_timeout=0.5
+            settings.REDIS_URL, decode_responses=True, socket_connect_timeout=1.0
         )
         await client.ping()
         _redis_client = client
     except Exception:
-        _redis_client = None
+        _redis_client = None  # Falls back to in-memory _store
     return _redis_client
 
 
