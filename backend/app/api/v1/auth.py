@@ -73,7 +73,10 @@ async def signup_send_otp(
     if email_check.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered.")
 
-    await _send_otp(body.email, body.name, db, background_tasks)
+    try:
+        await _send_otp(body.email, body.name, db, background_tasks)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send OTP: {str(e)}")
     return MessageResponse(message="OTP sent to your email. Valid for 10 minutes.")
 
 
