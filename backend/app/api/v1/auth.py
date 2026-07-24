@@ -178,7 +178,7 @@ async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(
 @router.get("/google")
 async def google_login():
     """Redirect user to Google OAuth consent screen."""
-    redirect_uri = "http://localhost:8000/api/v1/auth/google/callback"
+    redirect_uri = f"{settings.BACKEND_URL}/api/v1/auth/google/callback"
     params = (
         f"client_id={settings.GOOGLE_CLIENT_ID}"
         f"&redirect_uri={redirect_uri}"
@@ -205,7 +205,7 @@ async def google_callback(
                 "code": code,
                 "client_id": settings.GOOGLE_CLIENT_ID,
                 "client_secret": settings.GOOGLE_CLIENT_SECRET,
-                "redirect_uri": "http://localhost:8000/api/v1/auth/google/callback",
+                "redirect_uri": f"{settings.BACKEND_URL}/api/v1/auth/google/callback",
                 "grant_type": "authorization_code",
             },
         )

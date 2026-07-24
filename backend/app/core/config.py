@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "changeme"
     CORS_ORIGINS: str = "https://trademind-ai12.vercel.app,http://localhost:3000"
     FRONTEND_URL: str = "https://trademind-ai12.vercel.app"
+    BACKEND_URL: str = "https://trademind-ai-l4qe.onrender.com"
 
     def get_cors_origins(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
