@@ -33,11 +33,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
-    // Only redirect on 401 for auth-required endpoints
+    // Only hard-redirect on 401 if there is genuinely no token stored
     if (error.response?.status === 401 && typeof window !== "undefined") {
-      const url = error.config?.url ?? "";
-      const isAuthRequired = url.includes("/portfolio") || url.includes("/trading") || url.includes("/admin");
-      if (isAuthRequired) {
+      const token = localStorage.getItem("access_token");
+      if (!token) {
         localStorage.clear();
         window.location.href = "/";
       }

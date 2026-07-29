@@ -4,9 +4,17 @@ import { useAuthStore } from "@/store/authStore";
 import { Settings, User, Bell } from "lucide-react";
 import toast from "react-hot-toast";
 
+const DEFAULT_NOTIFS = {
+  "Price Alerts": true,
+  "AI Signals": true,
+  "News Alerts": false,
+  "Portfolio Updates": false,
+};
+
 export default function SettingsPage() {
   const { user, loginWithName } = useAuthStore();
   const [name, setName] = useState(user?.name || "");
+  const [notifs, setNotifs] = useState<Record<string, boolean>>(DEFAULT_NOTIFS);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -14,6 +22,13 @@ export default function SettingsPage() {
     loginWithName(name.trim());
     toast.success("Profile updated");
   };
+
+  const NOTIF_LIST = [
+    { label: "Price Alerts",      desc: "Get notified when stocks hit your targets" },
+    { label: "AI Signals",        desc: "Receive buy/sell/hold recommendations" },
+    { label: "News Alerts",       desc: "Breaking financial news for your watchlist" },
+    { label: "Portfolio Updates", desc: "Daily portfolio performance summary" },
+  ];
 
   return (
     <div className="space-y-6 animate-fade-in max-w-2xl">
@@ -43,19 +58,24 @@ export default function SettingsPage() {
       <div className="glass-card">
         <h3 className="font-semibold mb-4 flex items-center gap-2"><Bell className="w-4 h-4" /> Notifications</h3>
         <div className="space-y-3">
-          {[
-            { label: "Price Alerts", desc: "Get notified when stocks hit your targets" },
-            { label: "AI Signals", desc: "Receive buy/sell/hold recommendations" },
-            { label: "News Alerts", desc: "Breaking financial news for your watchlist" },
-            { label: "Portfolio Updates", desc: "Daily portfolio performance summary" },
-          ].map((n) => (
+          {NOTIF_LIST.map((n) => (
             <div key={n.label} className="flex items-center justify-between py-2">
               <div>
                 <div className="text-sm font-medium">{n.label}</div>
                 <div className="text-xs text-muted-foreground">{n.desc}</div>
               </div>
-              <button className="w-10 h-6 bg-neon-green/20 border border-neon-green/30 rounded-full relative transition-all">
-                <div className="w-4 h-4 bg-neon-green rounded-full absolute right-1 top-1 transition-all" />
+              <button
+                type="button"
+                onClick={() => setNotifs((prev) => ({ ...prev, [n.label]: !prev[n.label] }))}
+                className={`w-10 h-6 rounded-full relative transition-all border ${
+                  notifs[n.label]
+                    ? "bg-neon-green/20 border-neon-green/30"
+                    : "bg-muted border-border"
+                }`}
+              >
+                <div className={`w-4 h-4 rounded-full absolute top-1 transition-all ${
+                  notifs[n.label] ? "bg-neon-green right-1" : "bg-muted-foreground left-1"
+                }`} />
               </button>
             </div>
           ))}

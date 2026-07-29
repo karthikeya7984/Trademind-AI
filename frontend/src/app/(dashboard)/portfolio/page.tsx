@@ -32,7 +32,7 @@ export default function PortfolioPage() {
 
   const { data: portfolio = [], isLoading } = useQuery({
     queryKey: ["portfolio"],
-    queryFn: () => api.get("/portfolio/").then((r) => r.data),
+    queryFn: () => api.get("/portfolio/").then((r) => r.data).catch(() => []),
   });
 
   const { data: optimization, mutate: runOptimize, isPending: optimizing } = useMutation({

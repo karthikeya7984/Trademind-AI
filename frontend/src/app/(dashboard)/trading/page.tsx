@@ -19,12 +19,12 @@ export default function TradingPage() {
 
   const { data: account } = useQuery({
     queryKey: ["trading-account"],
-    queryFn: () => api.get("/trading/account").then((r) => r.data),
+    queryFn: () => api.get("/trading/account").then((r) => r.data).catch(() => null),
   });
 
   const { data: tradeHistory = [] } = useQuery({
     queryKey: ["trade-history"],
-    queryFn: () => api.get("/trading/history").then((r) => r.data),
+    queryFn: () => api.get("/trading/history").then((r) => r.data).catch(() => []),
   });
 
   const { data: quote } = useQuery({

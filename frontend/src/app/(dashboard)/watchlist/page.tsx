@@ -13,7 +13,7 @@ export default function WatchlistPage() {
 
   const { data: watchlist = [], isLoading } = useQuery({
     queryKey: ["watchlist"],
-    queryFn: () => api.get("/watchlist/").then((r) => r.data),
+    queryFn: () => api.get("/watchlist/").then((r) => r.data).catch(() => []),
   });
 
   const addMutation = useMutation({

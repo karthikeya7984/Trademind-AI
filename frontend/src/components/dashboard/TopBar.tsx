@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Bell, Search, Sun, Moon, Menu, LogOut, User, Settings, ChevronDown } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
 import { useAuthStore } from "@/store/authStore";
@@ -11,6 +12,13 @@ export default function TopBar() {
   const [search, setSearch] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = search.trim().toUpperCase();
+    if (q) router.push(`/predictions?symbol=${q}`);
+  };
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -30,7 +38,7 @@ export default function TopBar() {
       </button>
 
       {/* Search */}
-      <div className="flex-1 max-w-md relative hidden sm:block">
+      <form onSubmit={handleSearch} className="flex-1 max-w-md relative hidden sm:block">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <input
           value={search}
@@ -38,7 +46,7 @@ export default function TopBar() {
           placeholder="Search stocks, e.g. AAPL, TSLA..."
           className="w-full bg-muted border border-border rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neon-green/50 transition-all"
         />
-      </div>
+      </form>
 
       <div className="flex items-center gap-3 ml-auto">
         {/* Theme toggle */}
@@ -94,7 +102,7 @@ export default function TopBar() {
                   className="flex items-center gap-3 px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
                 >
                   <User className="w-4 h-4" />
-                  Profile
+                  Profile &amp; Account
                 </Link>
               </div>
 

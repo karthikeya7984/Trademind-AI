@@ -1,15 +1,17 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, TrendingUp, PieChart, MessageSquare, Newspaper } from "lucide-react";
+import { LayoutDashboard, TrendingUp, PieChart, Eye, BarChart3, MessageSquare, Newspaper } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
-  { href: "/dashboard", icon: LayoutDashboard, label: "Home" },
-  { href: "/predictions", icon: TrendingUp, label: "AI" },
-  { href: "/portfolio", icon: PieChart, label: "Portfolio" },
-  { href: "/assistant", icon: MessageSquare, label: "Chat" },
-  { href: "/news", icon: Newspaper, label: "News" },
+  { href: "/dashboard",   icon: LayoutDashboard, label: "Home"      },
+  { href: "/predictions", icon: TrendingUp,       label: "AI"        },
+  { href: "/portfolio",   icon: PieChart,         label: "Portfolio" },
+  { href: "/watchlist",   icon: Eye,              label: "Watchlist" },
+  { href: "/trading",     icon: BarChart3,        label: "Trading"   },
+  { href: "/assistant",   icon: MessageSquare,    label: "Chat"      },
+  { href: "/news",        icon: Newspaper,        label: "News"      },
 ];
 
 export default function MobileNav() {
