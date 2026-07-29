@@ -56,17 +56,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Middleware
+# Middleware — CORS must be added LAST so it runs FIRST (Starlette reverse order)
 app.add_middleware(LoggingMiddleware)
 
-_origins = settings.get_cors_origins()
-_allow_all = "*" in _origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if _allow_all else _origins,
-    allow_credentials=False if _allow_all else True,
-    allow_methods=["*"],
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Prometheus

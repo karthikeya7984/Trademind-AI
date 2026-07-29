@@ -24,6 +24,18 @@ _HEADERS  = {
     "Accept": "application/json",
 }
 _av_semaphore = asyncio.Semaphore(2)
+# Shared HTTP client for all YF requests — reuses connections, much faster
+_yf_client: httpx.AsyncClient | None = None
+
+async def _get_yf_client() -> httpx.AsyncClient:
+    global _yf_client
+    if _yf_client is None or _yf_client.is_closed:
+        _yf_client = httpx.AsyncClient(
+            timeout=12,
+            headers=_HEADERS,
+            limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+        )
+    return _yf_client
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -56,7 +68,7 @@ def _fmt_volume(v) -> int:
 # ── Yahoo Finance v8 direct HTTP ───────────────────────────────────────────────
 
 async def _yf_chart(symbol: str, period: str = "5d", interval: str = "1d") -> dict | None:
-    """Fetch raw Yahoo Finance chart JSON. Tries query1 then query2."""
+    """Fetch raw Yahoo Finance chart JSON using shared persistent client."""
     yf_sym = symbol.replace(".", "-")
     params = {
         "range": period,
@@ -64,10 +76,10 @@ async def _yf_chart(symbol: str, period: str = "5d", interval: str = "1d") -> di
         "includePrePost": "false",
         "events": "div,splits",
     }
+    client = await _get_yf_client()
     for base in (_YF_BASE, _YF_BASE2):
         try:
-            async with httpx.AsyncClient(timeout=10, headers=_HEADERS) as client:
-                r = await client.get(f"{base}/{yf_sym}", params=params)
+            r = await client.get(f"{base}/{yf_sym}", params=params)
             if r.status_code == 200:
                 data = r.json()
                 result = data.get("chart", {}).get("result")
@@ -299,12 +311,13 @@ async def get_stock_quote(symbol: str) -> dict:
 
 
 async def get_bulk_quotes(symbols: list[str]) -> dict:
-    """Fetch quotes for multiple symbols concurrently via Yahoo Finance v8."""
+    """Fetch quotes for multiple symbols fully concurrently via Yahoo Finance."""
     key = f"bulk:{','.join(sorted(symbols))}"
     cached = await cache_get(key)
     if cached:
         return json.loads(cached)
 
+    # Check individual caches first
     result: dict = {}
     uncached = []
     for sym in symbols:
@@ -315,20 +328,18 @@ async def get_bulk_quotes(symbols: list[str]) -> dict:
             uncached.append(sym)
 
     if uncached:
-        CHUNK = 20
-        for i in range(0, len(uncached), CHUNK):
-            chunk = uncached[i:i + CHUNK]
-            quotes = await asyncio.gather(*[_yf_quote(s) for s in chunk], return_exceptions=True)
-            for sym, q in zip(chunk, quotes):
-                if q and not isinstance(q, Exception):
-                    result[sym] = q
-                    await cache_set(f"quote:{sym}", json.dumps(q), ttl=120)
+        # Fetch ALL uncached symbols fully concurrently (no chunking)
+        quotes = await asyncio.gather(*[_yf_quote(s) for s in uncached], return_exceptions=True)
+        for sym, q in zip(uncached, quotes):
+            if q and not isinstance(q, Exception):
+                result[sym] = q
+                await cache_set(f"quote:{sym}", json.dumps(q), ttl=120)
 
-        # AV fallback for any still missing
+        # AV fallback only for symbols that completely failed
         still_missing = [s for s in uncached if s not in result]
-        if still_missing:
-            av_quotes = await asyncio.gather(*[_av_quote(s) for s in still_missing], return_exceptions=True)
-            for sym, q in zip(still_missing, av_quotes):
+        if still_missing and settings.ALPHA_VANTAGE_KEY:
+            av_quotes = await asyncio.gather(*[_av_quote(s) for s in still_missing[:5]], return_exceptions=True)
+            for sym, q in zip(still_missing[:5], av_quotes):
                 if q and not isinstance(q, Exception):
                     result[sym] = q
                     await cache_set(f"quote:{sym}", json.dumps(q), ttl=120)

@@ -33,20 +33,13 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
+    // Only redirect on 401 for auth-required endpoints
     if (error.response?.status === 401 && typeof window !== "undefined") {
-      const refresh = localStorage.getItem("refresh_token");
-      if (refresh) {
-        try {
-          const base = getApiBase();
-          const { data } = await axios.post(`${base}/auth/refresh`, { refresh_token: refresh });
-          localStorage.setItem("access_token", data.access_token);
-          localStorage.setItem("refresh_token", data.refresh_token);
-          error.config.headers.Authorization = `Bearer ${data.access_token}`;
-          return api(error.config);
-        } catch {
-          localStorage.clear();
-          window.location.href = "/login";
-        }
+      const url = error.config?.url ?? "";
+      const isAuthRequired = url.includes("/portfolio") || url.includes("/trading") || url.includes("/admin");
+      if (isAuthRequired) {
+        localStorage.clear();
+        window.location.href = "/";
       }
     }
     return Promise.reject(error);

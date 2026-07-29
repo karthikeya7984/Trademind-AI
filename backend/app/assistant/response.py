@@ -164,94 +164,199 @@ def build_risk_response(symbol: str, risk: dict, result: PredictionResult) -> st
 
 
 def build_education_response(topic: str) -> str:
-    topic_lower = topic.lower()
+    t = topic.lower()
 
-    if "rsi" in topic_lower:
+    if "rsi" in t:
         return (
             "## 📈 RSI — Relative Strength Index\n\n"
-            "RSI measures momentum on a **0–100 scale**.\n\n"
-            "| RSI Range | Meaning | Action |\n|---|---|---|\n"
-            "| < 30 | Oversold | 🟢 Potential BUY |\n"
-            "| 30–40 | Approaching oversold | Consider buying |\n"
-            "| 40–60 | Neutral | Hold / Wait |\n"
-            "| 60–70 | Approaching overbought | Consider selling |\n"
-            "| > 70 | Overbought | 🔴 Potential SELL |\n\n"
-            "**Formula:** RSI = 100 − (100 / (1 + RS)) where RS = Avg Gain / Avg Loss over 14 days\n\n"
-            "**Best used with:** MACD and volume confirmation.\n\n"
-            "*Ask me: \"What is the RSI for AAPL?\" to see live data.*"
+            "RSI measures **how fast and how much** a stock's price has moved recently, on a 0–100 scale. "
+            "Think of it as a speedometer for price momentum.\n\n"
+            "| RSI Level | What It Means | What Traders Do |\n|---|---|---|\n"
+            "| < 30 | Oversold — sellers exhausted | 🟢 Look for BUY entry |\n"
+            "| 30–40 | Recovering from oversold | Consider accumulating |\n"
+            "| 40–60 | Neutral zone | Hold / wait for signal |\n"
+            "| 60–70 | Approaching overbought | Tighten stop-loss |\n"
+            "| > 70 | Overbought — buyers exhausted | 🔴 Consider taking profit |\n\n"
+            "**Formula:** `RSI = 100 − (100 / (1 + RS))` where RS = Average Gain ÷ Average Loss over 14 days\n\n"
+            "**How to use it in a trade:**\n"
+            "1. RSI drops below 30 → wait for it to cross back above 30 → BUY signal\n"
+            "2. RSI rises above 70 → wait for it to cross back below 70 → SELL signal\n"
+            "3. **Divergence:** Price makes new high but RSI doesn't → reversal warning\n\n"
+            "**Best combined with:** MACD crossover + volume spike for confirmation.\n\n"
+            "*Try: \"Analyze AAPL\" to see the live RSI reading.*"
         )
-    if "macd" in topic_lower:
+
+    if "macd" in t:
         return (
             "## 📈 MACD — Moving Average Convergence Divergence\n\n"
-            "MACD shows the relationship between two EMAs.\n\n"
-            "| Component | Calculation |\n|---|---|\n"
-            "| MACD Line | EMA(12) − EMA(26) |\n"
-            "| Signal Line | EMA(9) of MACD |\n"
-            "| Histogram | MACD − Signal |\n\n"
-            "**Signals:**\n"
-            "- 🟢 **Bullish crossover** — MACD crosses above Signal → BUY\n"
-            "- 🔴 **Bearish crossover** — MACD crosses below Signal → SELL\n"
-            "- Histogram growing → momentum increasing\n\n"
-            "*Ask me: \"Analyze TSLA\" to see live MACD readings.*"
+            "MACD shows **trend direction and momentum** by comparing two moving averages. "
+            "It tells you when a trend is starting, strengthening, or reversing.\n\n"
+            "| Component | Formula | What It Shows |\n|---|---|---|\n"
+            "| MACD Line | EMA(12) − EMA(26) | Short vs long-term momentum |\n"
+            "| Signal Line | EMA(9) of MACD | Smoothed trigger line |\n"
+            "| Histogram | MACD − Signal | Momentum strength (growing = accelerating) |\n\n"
+            "**Key signals:**\n"
+            "- 🟢 **Bullish crossover** — MACD crosses *above* Signal line → BUY\n"
+            "- 🔴 **Bearish crossover** — MACD crosses *below* Signal line → SELL\n"
+            "- **Histogram growing** → momentum accelerating in that direction\n"
+            "- **Zero line cross** — MACD crosses above 0 = confirmed uptrend\n\n"
+            "**Real example:** If AAPL's MACD crosses above its signal line while the histogram turns positive, "
+            "that's a bullish crossover — traders often enter long here.\n\n"
+            "**Best combined with:** RSI (confirm not overbought) + volume (confirm buying pressure).\n\n"
+            "*Try: \"Analyze TSLA\" to see live MACD readings.*"
         )
-    if "bollinger" in topic_lower or "bb" in topic_lower:
+
+    if "bollinger" in t or "bb" in t:
         return (
             "## 📈 Bollinger Bands\n\n"
-            "Three lines: Middle (SMA20), Upper (+2σ), Lower (−2σ)\n\n"
-            "| Position | Meaning |\n|---|---|\n"
-            "| Near lower band | Oversold → potential BUY |\n"
-            "| Near upper band | Overbought → potential SELL |\n"
-            "| Band squeeze | Low volatility → big move incoming |\n"
-            "| Band expansion | High volatility → trend continuation |\n\n"
-            "*Ask me to analyze any stock to see its Bollinger Band position.*"
+            "Bollinger Bands show **price volatility** using three lines around a moving average. "
+            "When the bands are wide, the market is volatile. When narrow, it's calm — and a big move is often coming.\n\n"
+            "| Band | Formula | Meaning |\n|---|---|---|\n"
+            "| Upper Band | SMA(20) + 2×StdDev | Resistance / overbought zone |\n"
+            "| Middle Band | SMA(20) | Trend baseline |\n"
+            "| Lower Band | SMA(20) − 2×StdDev | Support / oversold zone |\n\n"
+            "**How to trade with Bollinger Bands:**\n"
+            "- Price touches **lower band** → potential bounce → BUY signal\n"
+            "- Price touches **upper band** → potential pullback → SELL signal\n"
+            "- **Band squeeze** (bands very close) → low volatility → expect a breakout soon\n"
+            "- **Band expansion** → high volatility → trend is strong, ride it\n\n"
+            "**Best combined with:** RSI (confirm oversold/overbought) + volume.\n\n"
+            "*Try: \"Analyze NVDA\" to see its current Bollinger Band position.*"
         )
-    if "adx" in topic_lower:
+
+    if "ema" in t or "sma" in t or "moving average" in t:
+        return (
+            "## 📈 Moving Averages — EMA & SMA\n\n"
+            "Moving averages **smooth out price noise** to show the underlying trend direction.\n\n"
+            "| Type | How It Works | Best For |\n|---|---|---|\n"
+            "| SMA (Simple) | Average of last N closing prices | Long-term trend |\n"
+            "| EMA (Exponential) | Weighted — recent prices count more | Short-term signals |\n\n"
+            "**Key levels traders watch:**\n"
+            "- **EMA 20** — short-term trend (swing traders)\n"
+            "- **EMA 50** — medium-term trend (position traders)\n"
+            "- **EMA 200** — long-term trend (investors)\n\n"
+            "**Golden Cross vs Death Cross:**\n"
+            "- 🟢 **Golden Cross** — EMA50 crosses *above* EMA200 → strong BUY signal\n"
+            "- 🔴 **Death Cross** — EMA50 crosses *below* EMA200 → strong SELL signal\n\n"
+            "**Rule of thumb:** Price above EMA20 > EMA50 > EMA200 = strong uptrend. "
+            "Price below all three = strong downtrend.\n\n"
+            "*Try: \"Analyze MSFT\" to see live EMA readings.*"
+        )
+
+    if "adx" in t:
         return (
             "## 📈 ADX — Average Directional Index\n\n"
-            "ADX measures **trend strength** (not direction) on a 0–100 scale.\n\n"
-            "| ADX Value | Trend Strength |\n|---|---|\n"
-            "| < 20 | No trend (ranging) |\n"
-            "| 20–25 | Weak trend |\n"
-            "| 25–40 | Strong trend |\n"
-            "| > 40 | Very strong trend |\n\n"
-            "**+DI > −DI** → Uptrend | **−DI > +DI** → Downtrend\n\n"
-            "*Best used to confirm signals from RSI and MACD.*"
+            "ADX measures **how strong a trend is** — not its direction. "
+            "It answers: *Is the market trending or just ranging?*\n\n"
+            "| ADX Value | Trend Strength | What To Do |\n|---|---|---|\n"
+            "| < 20 | No trend (ranging) | Avoid trend strategies |\n"
+            "| 20–25 | Weak trend forming | Wait for confirmation |\n"
+            "| 25–40 | Strong trend | Trade with the trend |\n"
+            "| > 40 | Very strong trend | Ride it, trail stop-loss |\n\n"
+            "**Direction lines:**\n"
+            "- **+DI > −DI** → Uptrend (bulls in control)\n"
+            "- **−DI > +DI** → Downtrend (bears in control)\n\n"
+            "**Key insight:** ADX above 25 with +DI > −DI = confirmed uptrend. "
+            "This is when RSI and MACD signals are most reliable.\n\n"
+            "*Try: \"Analyze GOOGL\" to see live ADX readings.*"
         )
-    if "vwap" in topic_lower:
+
+    if "vwap" in t:
         return (
             "## 📈 VWAP — Volume Weighted Average Price\n\n"
-            "VWAP = Σ(Price × Volume) / Σ(Volume)\n\n"
-            "**Key rules:**\n"
-            "- Price **above VWAP** → bullish, institutional buying\n"
-            "- Price **below VWAP** → bearish, institutional selling\n"
-            "- Used by institutions as a benchmark\n"
-            "- Most useful for **intraday trading**\n\n"
-            "*Ask me to analyze any stock for a full signal.*"
+            "VWAP is the **average price weighted by volume** throughout the trading day. "
+            "Institutions use it as a benchmark — they try to buy below VWAP and sell above it.\n\n"
+            "**Formula:** `VWAP = Σ(Price × Volume) / Σ(Volume)`\n\n"
+            "**How to use it:**\n"
+            "- Price **above VWAP** → bullish, institutions are net buyers → look for BUY entries\n"
+            "- Price **below VWAP** → bearish, institutions are net sellers → avoid buying\n"
+            "- Price **bounces off VWAP** → strong support/resistance level\n\n"
+            "**Best for:** Intraday trading and confirming entry timing.\n\n"
+            "*Try: \"Analyze SPY\" for a full signal with volume analysis.*"
         )
-    if "stop loss" in topic_lower or "stop-loss" in topic_lower:
+
+    if "stop loss" in t or "stop-loss" in t:
         return (
-            "## 🛡️ Stop Loss — Risk Management\n\n"
-            "A stop-loss automatically exits a trade to limit losses.\n\n"
-            "**Common methods:**\n"
-            "- **ATR-based:** Stop = Entry − (1.5 × ATR) — adapts to volatility\n"
-            "- **Fixed %:** 5–8% below entry price\n"
-            "- **Support level:** Just below key support\n"
-            "- **Bollinger Lower Band:** Dynamic stop\n\n"
-            "**Rule:** Never risk more than **2% of capital** on a single trade.\n\n"
-            "*Ask me to analyze a stock and I'll calculate a specific stop-loss.*"
+            "## 🛡️ Stop Loss — The Most Important Risk Tool\n\n"
+            "A stop-loss is a **pre-set exit price** that automatically closes your trade to limit losses. "
+            "It's the difference between a small loss and a catastrophic one.\n\n"
+            "**Common stop-loss methods:**\n"
+            "| Method | Formula | Best For |\n|---|---|---|\n"
+            "| ATR-based | Entry − (1.5 × ATR) | Volatile stocks |\n"
+            "| Fixed % | Entry × 0.93 (7% below) | Beginners |\n"
+            "| Support level | Just below key support | Swing trading |\n"
+            "| Bollinger Lower | Dynamic lower band | Mean-reversion trades |\n\n"
+            "**The 2% Rule:** Never risk more than **2% of your total capital** on a single trade.\n"
+            "Example: $10,000 portfolio → max loss per trade = $200\n\n"
+            "**Risk/Reward:** Always aim for at least **1:2** — risk $1 to make $2.\n\n"
+            "*Try: \"Analyze AAPL\" and I'll calculate a specific stop-loss for you.*"
+        )
+
+    if "support" in t or "resistance" in t:
+        return (
+            "## 📈 Support & Resistance\n\n"
+            "**Support** is a price level where buyers step in and stop the price from falling further. "
+            "**Resistance** is where sellers step in and stop the price from rising further.\n\n"
+            "**How to identify them:**\n"
+            "- Look for price levels where the stock has **bounced multiple times**\n"
+            "- Round numbers ($100, $150, $200) often act as psychological levels\n"
+            "- Previous highs become resistance; previous lows become support\n\n"
+            "**Key rule — Role Reversal:**\n"
+            "- When price **breaks above resistance** → that level becomes new support\n"
+            "- When price **breaks below support** → that level becomes new resistance\n\n"
+            "**Trading strategy:** Buy near support with stop below it. Sell near resistance.\n\n"
+            "*Try: \"Analyze TSLA\" to see key price levels.*"
+        )
+
+    if "candlestick" in t or "candle" in t:
+        return (
+            "## 🕯️ Candlestick Patterns\n\n"
+            "Each candlestick shows **4 prices** for a time period: Open, High, Low, Close.\n\n"
+            "**Anatomy:** Body (Open→Close) + Wicks (High/Low extremes)\n"
+            "- 🟢 Green candle = Close > Open (buyers won)\n"
+            "- 🔴 Red candle = Close < Open (sellers won)\n\n"
+            "**Key reversal patterns:**\n"
+            "| Pattern | What It Looks Like | Signal |\n|---|---|---|\n"
+            "| Doji | Tiny body, long wicks | Indecision → reversal possible |\n"
+            "| Hammer | Small body, long lower wick | 🟢 Bullish reversal at bottom |\n"
+            "| Shooting Star | Small body, long upper wick | 🔴 Bearish reversal at top |\n"
+            "| Engulfing | Large candle swallows previous | Strong reversal signal |\n\n"
+            "*Try: \"Analyze AAPL\" for a full technical analysis.*"
+        )
+
+    if "risk" in t or "reward" in t or "risk/reward" in t:
+        return (
+            "## ⚖️ Risk/Reward Ratio\n\n"
+            "Risk/Reward (R:R) tells you **how much you stand to gain vs lose** on a trade. "
+            "It's the single most important concept in trading.\n\n"
+            "**Formula:** `R:R = (Target − Entry) / (Entry − Stop Loss)`\n\n"
+            "**Example with AAPL:**\n"
+            "- Entry: $190 | Target: $200 | Stop Loss: $185\n"
+            "- Reward: $10 | Risk: $5 | **R:R = 1:2** ✅\n\n"
+            "| R:R Ratio | Quality | Should You Take It? |\n|---|---|---|\n"
+            "| 1:1 | Poor | ❌ No — not worth it |\n"
+            "| 1:1.5 | Acceptable | ⚠️ Only with high confidence |\n"
+            "| 1:2 | Good | ✅ Standard minimum |\n"
+            "| 1:3+ | Excellent | 🚀 Best setups |\n\n"
+            "**Key insight:** Even if you're right only 40% of the time, a 1:3 R:R makes you profitable.\n\n"
+            "*Try: \"Analyze NVDA\" to see the current risk/reward setup.*"
         )
 
     return (
-        f"## 📚 {topic}\n\n"
-        "I can explain these trading concepts in detail:\n\n"
-        "- **RSI** — momentum oscillator\n"
-        "- **MACD** — trend & momentum\n"
-        "- **Bollinger Bands** — volatility\n"
-        "- **ADX** — trend strength\n"
-        "- **VWAP** — volume-weighted price\n"
-        "- **Stop Loss** — risk management\n"
-        "- **EMA/SMA** — moving averages\n\n"
-        "*Ask me: \"What is RSI?\" or \"Explain MACD\"*"
+        f"## 📚 Trading Education\n\n"
+        "I can explain these concepts in depth — just ask:\n\n"
+        "| Topic | Ask Me |"
+        "\n|---|---|"
+        "\n| RSI | \"What is RSI?\" |"
+        "\n| MACD | \"Explain MACD\" |"
+        "\n| Bollinger Bands | \"What are Bollinger Bands?\" |"
+        "\n| Moving Averages | \"What is EMA vs SMA?\" |"
+        "\n| ADX | \"What is ADX?\" |"
+        "\n| Support & Resistance | \"Explain support and resistance\" |"
+        "\n| Stop Loss | \"How do I set a stop loss?\" |"
+        "\n| Risk/Reward | \"What is risk/reward ratio?\" |"
+        "\n| Candlesticks | \"Explain candlestick patterns\" |\n\n"
+        "Or ask about a specific stock: *\"Analyze AAPL\"* or *\"Should I buy NVDA?\"*"
     )
 
 

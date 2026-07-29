@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { TrendingUp, Brain, Shield, BarChart3, Zap, Globe } from "lucide-react";
+import { TrendingUp, Brain, Shield, BarChart3, Zap, Globe, ArrowRight, Loader2 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 
 const features = [
@@ -15,14 +15,24 @@ const features = [
 ];
 
 export default function HomePage() {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, loginWithName } = useAuthStore();
   const router = useRouter();
   const [checked, setChecked] = useState(false);
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) router.replace("/dashboard");
     else setChecked(true);
   }, [isAuthenticated]);
+
+  const handleEnter = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setLoading(true);
+    loginWithName(name.trim());
+    router.push("/dashboard");
+  };
 
   if (!checked) return (
     <div className="h-screen bg-background flex items-center justify-center">
@@ -102,22 +112,23 @@ export default function HomePage() {
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}
           className="glass neon-border rounded-xl px-6 py-4"
         >
-          <h2 className="text-lg font-bold mb-1 text-center">Get Started</h2>
-          <p className="text-muted-foreground text-sm mb-4 text-center">Sign in or create your TradeMind AI account.</p>
-          <div className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
-            <button
-              onClick={() => router.push("/login")}
-              className="flex-1 flex items-center justify-center gap-2 bg-muted border border-border rounded-lg px-5 py-2.5 text-sm font-medium hover:border-neon-green/40 transition-all"
-            >
-              Sign In
+          <h2 className="text-lg font-bold mb-1 text-center">Sign into account</h2>
+          <p className="text-muted-foreground text-sm mb-4 text-center">Enter your name to get started instantly.</p>
+          <form onSubmit={handleEnter} className="flex gap-3 max-w-md mx-auto">
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name"
+              required
+              autoFocus
+              className="flex-1 bg-muted border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-neon-green/50 transition-all"
+            />
+            <button type="submit" disabled={loading || !name.trim()} className="btn-primary flex items-center gap-2 px-5">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+              Go
             </button>
-            <button
-              onClick={() => router.push("/register")}
-              className="flex-1 flex items-center justify-center gap-2 btn-primary rounded-lg px-5 py-2.5 text-sm font-medium"
-            >
-              Create Account
-            </button>
-          </div>
+          </form>
         </motion.div>
       </div>
     </main>

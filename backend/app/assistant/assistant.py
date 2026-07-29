@@ -64,51 +64,91 @@ async def _run_prediction(symbol: str) -> tuple:
 
 # ── AI dynamic response ────────────────────────────────────────────────────────
 
-async def _gemini_response(prompt: str, context: str, history: list[dict]) -> str | None:
+_SYSTEM_PROMPT = """\
+You are TradeMind AI — a professional stock market analyst and trading educator.
+You ONLY answer questions about stocks, trading, investing, and financial markets.
+If a question is unrelated to finance, reply: "I only answer stock and trading related questions."
+
+RESPONSE RULES:
+- Use markdown formatting (headers, bold, tables, bullet points)
+- Be clear and educational — explain WHY, not just WHAT
+- Keep responses focused and scannable — avoid walls of text
+- Use plain English that a beginner can understand, but include depth for advanced users
+- Always end with: *⚠️ Not financial advice. Always do your own research.*
+
+FOR INDICATOR EXPLANATIONS (RSI, MACD, Bollinger Bands, etc.):
+- Explain what it measures in one sentence
+- Show the formula or key levels in a table
+- Give a real-world example of what each reading means
+- Explain how to use it in a trade decision
+- Mention what to combine it with for confirmation
+
+FOR STOCK ANALYSIS (when live data is provided):
+- Lead with the signal and confidence
+- Explain each indicator reading in plain English
+- Give a clear trade plan (entry, target, stop-loss)
+- List the top 2-3 reasons for the signal
+- List the top 1-2 risks to watch
+
+FOR GENERAL TRADING QUESTIONS:
+- Give a structured, educational answer
+- Use examples with real stock names where helpful
+- Include actionable takeaways
+"""
+
+
+async def _call_ai(prompt: str, context: str, history: list[dict]) -> str | None:
     """
-    Call xAI (Grok) if XAI_API_KEY is configured.
-    Returns None if unavailable — caller falls back to structured response.
+    Multi-provider LLM caller: Groq → xAI → OpenAI.
+    Returns None if all providers fail — caller uses structured fallback.
     """
     from app.core.config import settings
 
-    if not settings.XAI_API_KEY:
-        return None
-
-    system = (
-        "You are TradeMind AI, a professional stock market analyst. "
-        "You ONLY answer questions about stocks, trading, and financial markets. "
-        "If the question is not about stocks or finance, reply: "
-        "'I only answer stock and trading related questions.' "
-        "Be concise, use markdown formatting, and always end with: "
-        "*Not financial advice. Always do your own research.*"
-        + (f"\n\n=== LIVE MARKET DATA ===\n{context}" if context else "")
-    )
-
+    system = _SYSTEM_PROMPT + (f"\n\n=== LIVE MARKET DATA ===\n{context}" if context else "")
     messages = [{"role": "system", "content": system}]
     for h in history[-4:]:
         messages.append({"role": "user",      "content": h["prompt"]})
         messages.append({"role": "assistant", "content": h["response"]})
     messages.append({"role": "user", "content": prompt})
 
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {settings.XAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={"model": settings.XAI_MODEL, "messages": messages,
-                      "max_tokens": 1024, "temperature": 0.3},
-            )
-        if r.status_code == 200:
-            text = r.json()["choices"][0]["message"]["content"]
-            if text:
-                return text
-    except Exception:
-        pass
+    async def _post(base: str, key: str, model: str) -> str | None:
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.post(
+                    f"{base}/chat/completions",
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json={"model": model, "messages": messages, "max_tokens": 1200, "temperature": 0.3},
+                )
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"] or None
+        except Exception:
+            pass
+        return None
+
+    # 1. Groq — free, fastest
+    if settings.GROQ_API_KEY:
+        result = await _post("https://api.groq.com/openai/v1", settings.GROQ_API_KEY, settings.GROQ_MODEL)
+        if result:
+            return result
+
+    # 2. xAI Grok
+    if settings.XAI_API_KEY:
+        result = await _post("https://api.x.ai/v1", settings.XAI_API_KEY, settings.XAI_MODEL)
+        if result:
+            return result
+
+    # 3. OpenAI
+    if settings.OPENAI_API_KEY:
+        result = await _post("https://api.openai.com/v1", settings.OPENAI_API_KEY, "gpt-4o-mini")
+        if result:
+            return result
 
     return None
+
+
+# Keep old name as alias so existing call sites work unchanged
+async def _gemini_response(prompt: str, context: str, history: list[dict]) -> str | None:
+    return await _call_ai(prompt, context, history)
 
 
 # ── Follow-up detection ───────────────────────────────────────────────────────
